@@ -1,10 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-class AppShell extends StatelessWidget {
+import '../core/api/trustvault_api_client.dart';
+import 'selected_customer.dart';
+
+class AppShell extends StatefulWidget {
   const AppShell({super.key, required this.child});
 
   final Widget child;
+
+  @override
+  State<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends State<AppShell> {
+  final TrustVaultApiClient _apiClient = TrustVaultApiClient();
+  late Future<List<dynamic>> _customersFuture;
 
   static const List<_Destination> _destinations = [
     _Destination('/', 'Dashboard', Icons.dashboard_outlined, Icons.dashboard),
@@ -25,6 +36,18 @@ class AppShell extends StatelessWidget {
     _Destination('/audit', 'Audit', Icons.history_edu_outlined, Icons.history_edu),
     _Destination('/licence', 'Licence', Icons.key_outlined, Icons.key),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _customersFuture = _apiClient.getCustomers();
+  }
+
+  void _refreshCustomers() {
+    setState(() {
+      _customersFuture = _apiClient.getCustomers();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -52,7 +75,15 @@ class AppShell extends StatelessWidget {
                 .toList(),
           ),
           const VerticalDivider(width: 1),
-          Expanded(child: child),
+          Expanded(
+            child: Column(
+              children: [
+                _CustomerContextBar(customersFuture: _customersFuture, onRefresh: _refreshCustomers),
+                const Divider(height: 1),
+                Expanded(child: widget.child),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -65,6 +96,80 @@ class AppShell extends StatelessWidget {
       if (path != '/' && location.startsWith(path)) return i;
     }
     return 0;
+  }
+}
+
+class _CustomerContextBar extends StatelessWidget {
+  const _CustomerContextBar({required this.customersFuture, required this.onRefresh});
+
+  final Future<List<dynamic>> customersFuture;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 64,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Row(
+        children: [
+          const Icon(Icons.business_outlined),
+          const SizedBox(width: 12),
+          Expanded(
+            child: FutureBuilder<List<dynamic>>(
+              future: customersFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return const Text('Loading customers...');
+                }
+                if (snapshot.hasError) {
+                  return Text('Unable to load customers: ${snapshot.error}');
+                }
+                final customers = (snapshot.data ?? <dynamic>[]).cast<dynamic>();
+                if (customers.isEmpty) {
+                  SelectedCustomerController.select(null);
+                  return const Text('No customer selected. Upload a source folder to begin.');
+                }
+                final current = SelectedCustomerController.selected.value;
+                if (current == null) {
+                  SelectedCustomerController.select(customers.first as Map<String, dynamic>);
+                }
+                return ValueListenableBuilder<Map<String, dynamic>?>(
+                  valueListenable: SelectedCustomerController.selected,
+                  builder: (context, selected, _) {
+                    final selectedExternalId = selected?['external_id']?.toString();
+                    return DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        isExpanded: true,
+                        value: customers.any((item) => (item as Map<String, dynamic>)['external_id']?.toString() == selectedExternalId)
+                            ? selectedExternalId
+                            : (customers.first as Map<String, dynamic>)['external_id']?.toString(),
+                        items: customers.map((item) {
+                          final customer = item as Map<String, dynamic>;
+                          final label = '${customer['display_name'] ?? customer['external_id']} (${customer['external_id']})';
+                          return DropdownMenuItem<String>(
+                            value: customer['external_id']?.toString(),
+                            child: Text(label, overflow: TextOverflow.ellipsis),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          final selectedCustomer = customers
+                              .cast<Map<String, dynamic>>()
+                              .where((item) => item['external_id']?.toString() == value)
+                              .firstOrNull;
+                          SelectedCustomerController.select(selectedCustomer);
+                        },
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          const SizedBox(width: 12),
+          IconButton(onPressed: onRefresh, icon: const Icon(Icons.refresh), tooltip: 'Refresh customers'),
+        ],
+      ),
+    );
   }
 }
 
