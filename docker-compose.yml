@@ -1,0 +1,40 @@
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.api
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+    volumes:
+      - ./local-data:/app/local-data
+      - ./backend/config:/app/config:ro
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+    volumes:
+      - ./local-data:/app/local-data
+      - ./backend/config:/app/config:ro
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: trustvault
+      POSTGRES_USER: trustvault
+      POSTGRES_PASSWORD: trustvault_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-data:
