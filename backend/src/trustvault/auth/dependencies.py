@@ -2,6 +2,7 @@ from fastapi import Depends, Header, HTTPException, status
 
 from trustvault.auth.models import ANONYMOUS_USER, CurrentUser
 from trustvault.auth.permissions import has_permission, permissions_for_roles
+from trustvault.licensing.dependencies import check_licence_for_permission
 from trustvault.settings import get_settings
 
 
@@ -47,6 +48,7 @@ def require_permission(permission: str):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
         if not has_permission(current_user.permissions, permission):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Missing permission: {permission}")
+        check_licence_for_permission(permission)
         return current_user
 
     return dependency
