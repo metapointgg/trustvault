@@ -55,6 +55,13 @@ class TrustVaultApiClient {
     return response.data ?? <String, dynamic>{};
   }
 
+  Future<Map<String, dynamic>> validateContainerVersion(String containerVersionId) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/containers/versions/$containerVersionId/validate',
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
   Future<Map<String, dynamic>> queueEntityContainerRebuild(String entityExternalId) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/jobs',
