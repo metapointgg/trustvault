@@ -12,6 +12,7 @@ class JobsScreen extends StatefulWidget {
 class _JobsScreenState extends State<JobsScreen> {
   final TrustVaultApiClient _apiClient = TrustVaultApiClient();
   late Future<List<dynamic>> _future;
+  bool _submitting = false;
 
   @override
   void initState() {
@@ -20,8 +21,31 @@ class _JobsScreenState extends State<JobsScreen> {
   }
 
   Future<void> _submitJob(String jobType) async {
-    await _apiClient.createJob(jobType);
-    setState(() => _future = _apiClient.getJobs());
+    setState(() {
+      _submitting = true;
+    });
+    try {
+      await _apiClient.createJob(jobType);
+      final nextFuture = _apiClient.getJobs();
+      if (!mounted) return;
+      setState(() {
+        _future = nextFuture;
+        _submitting = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _submitting = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Unable to submit job: $error')));
+    }
+  }
+
+  void _refresh() {
+    final nextFuture = _apiClient.getJobs();
+    setState(() {
+      _future = nextFuture;
+    });
   }
 
   @override
@@ -43,10 +67,18 @@ class _JobsScreenState extends State<JobsScreen> {
                   ],
                 ),
               ),
+              OutlinedButton.icon(
+                onPressed: _refresh,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Refresh'),
+              ),
+              const SizedBox(width: 12),
               FilledButton.icon(
-                onPressed: () => _submitJob('rebuild_index'),
-                icon: const Icon(Icons.add),
-                label: const Text('Submit test job'),
+                onPressed: _submitting ? null : () => _submitJob('rebuild_index'),
+                icon: _submitting
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.add),
+                label: Text(_submitting ? 'Submitting...' : 'Submit test job'),
               ),
             ],
           ),
@@ -74,7 +106,12 @@ class _JobsScreenState extends State<JobsScreen> {
                       child: ListTile(
                         leading: const Icon(Icons.work_history_outlined),
                         title: Text('${job['job_type']}'),
-                        subtitle: Text('ID: ${job['id']}\nCorrelation: ${job['correlation_id']}'),
+                        subtitle: Text(
+                          'ID: ${job['id']}\n'
+                          'Correlation: ${job['correlation_id']}\n'
+                          'Created: ${job['created_at']}\n'
+                          'Completed: ${job['completed_at'] ?? '-'}',
+                        ),
                         trailing: Chip(label: Text('${job['status']}')),
                       ),
                     );
