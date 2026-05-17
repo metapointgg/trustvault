@@ -1,15 +1,19 @@
 import 'package:go_router/go_router.dart';
 
 import '../features/audit/audit_screen.dart';
-import '../features/customer_context/customer_feature_screen.dart';
+import '../features/comparison/comparison_screen.dart';
+import '../features/completeness/completeness_screen.dart';
 import '../features/dashboard/dashboard_screen.dart';
 import '../features/entities/entities_screen.dart';
 import '../features/export/fits_export_screen.dart';
+import '../features/extraction/extraction_screen.dart';
 import '../features/feature_status/feature_status_screen.dart';
 import '../features/fits/fits_operations_screen.dart';
 import '../features/ingestion/source_folder_upload_screen.dart';
+import '../features/integrity/integrity_screen.dart';
 import '../features/jobs/jobs_screen.dart';
 import '../features/licence/licence_screen.dart';
+import '../features/retention/retention_screen.dart';
 import '../features/search/search_screen.dart';
 import '../shared/app_shell.dart';
 
@@ -28,25 +32,11 @@ final appRouter = GoRouter(
             loader: (api) => api.getApiHealth(),
           ),
         ),
-        GoRoute(
-          path: '/comparison',
-          builder: (context, state) => CustomerFeatureScreen(
-            title: 'Comparison',
-            description: 'Compares the selected customer FITS archive with database/index projections.',
-            loader: (api, entityExternalId) => api.compareFitsVsDatabase(entityExternalId, query: 'passport'),
-          ),
-        ),
+        GoRoute(path: '/comparison', builder: (context, state) => const ComparisonScreen()),
         GoRoute(path: '/customers', builder: (context, state) => const EntitiesScreen()),
         GoRoute(path: '/entities', builder: (context, state) => const EntitiesScreen()),
         GoRoute(path: '/search', builder: (context, state) => const SearchScreen()),
-        GoRoute(
-          path: '/completeness',
-          builder: (context, state) => CustomerFeatureScreen(
-            title: 'Completeness',
-            description: 'Evaluates required evidence rules against the selected customer FITS archive manifest.',
-            loader: (api, entityExternalId) => api.evaluateCompleteness(entityExternalId),
-          ),
-        ),
+        GoRoute(path: '/completeness', builder: (context, state) => const CompletenessScreen()),
         GoRoute(
           path: '/rulesets',
           builder: (context, state) => FeatureStatusScreen(
@@ -56,30 +46,9 @@ final appRouter = GoRouter(
           ),
         ),
         GoRoute(path: '/ingestion', builder: (context, state) => const SourceFolderUploadScreen()),
-        GoRoute(
-          path: '/extraction',
-          builder: (context, state) => CustomerFeatureScreen(
-            title: 'Extraction',
-            description: 'OCR/search text, extracted fields and extraction events read from the selected customer FITS archive.',
-            loader: (api, entityExternalId) => api.getExtractionReport(entityExternalId),
-          ),
-        ),
-        GoRoute(
-          path: '/retention',
-          builder: (context, state) => CustomerFeatureScreen(
-            title: 'Retention',
-            description: 'Retention, sensitivity and legal-hold state derived from the selected customer FITS manifest.',
-            loader: (api, entityExternalId) => api.getEntityRetention(entityExternalId),
-          ),
-        ),
-        GoRoute(
-          path: '/integrity',
-          builder: (context, state) => CustomerFeatureScreen(
-            title: 'Integrity',
-            description: 'Fixity and integrity checks for the selected customer current FITS archive and payload HDUs.',
-            loader: (api, entityExternalId) => api.getEntityIntegrity(entityExternalId),
-          ),
-        ),
+        GoRoute(path: '/extraction', builder: (context, state) => const ExtractionScreen()),
+        GoRoute(path: '/retention', builder: (context, state) => const RetentionScreen()),
+        GoRoute(path: '/integrity', builder: (context, state) => const IntegrityScreen()),
         GoRoute(path: '/export', builder: (context, state) => const FitsExportScreen()),
         GoRoute(
           path: '/api',
