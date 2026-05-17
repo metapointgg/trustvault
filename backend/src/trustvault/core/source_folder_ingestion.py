@@ -93,7 +93,7 @@ class SourceFolderIngestionService:
                     "source_folder_root": root.rstrip("/"),
                     "jurisdiction": customer.get("jurisdiction"),
                     "risk_rating": customer.get("risk_rating"),
-                    "retention_class": "customer_evidence",
+                    "retention_class": category,
                     "legal_hold_status": "none",
                     "deletion_eligible": False,
                     "sensitivity": "confidential",
@@ -110,6 +110,7 @@ class SourceFolderIngestionService:
                 if relative == "metadata/audit_events.json":
                     metadata["category"] = "audit"
                     metadata["document_type"] = "audit_events"
+                    metadata["retention_class"] = "audit"
                     metadata["search_text"] = content.decode("utf-8", errors="replace")
                     metadata["search_text_source"] = "json_payload"
 
