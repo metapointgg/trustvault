@@ -1,6 +1,7 @@
 import 'package:go_router/go_router.dart';
 
 import '../features/audit/audit_screen.dart';
+import '../features/customer_context/customer_feature_screen.dart';
 import '../features/dashboard/dashboard_screen.dart';
 import '../features/entities/entities_screen.dart';
 import '../features/export/fits_export_screen.dart';
@@ -29,10 +30,10 @@ final appRouter = GoRouter(
         ),
         GoRoute(
           path: '/comparison',
-          builder: (context, state) => FeatureStatusScreen(
+          builder: (context, state) => CustomerFeatureScreen(
             title: 'Comparison',
-            description: 'Compares FITS archive state with database/index projections. Defaults to CUST-000001 where present.',
-            loader: (api) => api.compareFitsVsDatabase('CUST-000001'),
+            description: 'Compares the selected customer FITS archive with database/index projections.',
+            loader: (api, entityExternalId) => api.compareFitsVsDatabase(entityExternalId, query: 'passport'),
           ),
         ),
         GoRoute(path: '/customers', builder: (context, state) => const EntitiesScreen()),
@@ -40,10 +41,10 @@ final appRouter = GoRouter(
         GoRoute(path: '/search', builder: (context, state) => const SearchScreen()),
         GoRoute(
           path: '/completeness',
-          builder: (context, state) => FeatureStatusScreen(
+          builder: (context, state) => CustomerFeatureScreen(
             title: 'Completeness',
-            description: 'Evaluates required evidence rules against the current FITS archive manifest.',
-            loader: (api) => api.evaluateCompleteness('CUST-000001'),
+            description: 'Evaluates required evidence rules against the selected customer FITS archive manifest.',
+            loader: (api, entityExternalId) => api.evaluateCompleteness(entityExternalId),
           ),
         ),
         GoRoute(
@@ -57,26 +58,26 @@ final appRouter = GoRouter(
         GoRoute(path: '/ingestion', builder: (context, state) => const SourceFolderUploadScreen()),
         GoRoute(
           path: '/extraction',
-          builder: (context, state) => FeatureStatusScreen(
+          builder: (context, state) => CustomerFeatureScreen(
             title: 'Extraction',
-            description: 'OCR/search text, extracted fields and extraction events read from the current FITS archive.',
-            loader: (api) => api.getExtractionReport('CUST-000001'),
+            description: 'OCR/search text, extracted fields and extraction events read from the selected customer FITS archive.',
+            loader: (api, entityExternalId) => api.getExtractionReport(entityExternalId),
           ),
         ),
         GoRoute(
           path: '/retention',
-          builder: (context, state) => FeatureStatusScreen(
+          builder: (context, state) => CustomerFeatureScreen(
             title: 'Retention',
-            description: 'Retention, sensitivity and legal-hold state derived from FITS manifest metadata.',
-            loader: (api) => api.getRetentionReport(),
+            description: 'Retention, sensitivity and legal-hold state derived from the selected customer FITS manifest.',
+            loader: (api, entityExternalId) => api.getEntityRetention(entityExternalId),
           ),
         ),
         GoRoute(
           path: '/integrity',
-          builder: (context, state) => FeatureStatusScreen(
+          builder: (context, state) => CustomerFeatureScreen(
             title: 'Integrity',
-            description: 'Fixity and integrity checks for current FITS archives and payload HDUs.',
-            loader: (api) => api.getIntegritySummary(),
+            description: 'Fixity and integrity checks for the selected customer current FITS archive and payload HDUs.',
+            loader: (api, entityExternalId) => api.getEntityIntegrity(entityExternalId),
           ),
         ),
         GoRoute(path: '/export', builder: (context, state) => const FitsExportScreen()),
