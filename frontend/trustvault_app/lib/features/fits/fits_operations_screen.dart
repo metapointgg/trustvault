@@ -15,7 +15,8 @@ class _FitsOperationsScreenState extends State<FitsOperationsScreen> {
   final TextEditingController _queryController = TextEditingController(text: 'verified');
 
   Map<String, dynamic>? _inspectResult;
-  Map<String, dynamic>? _searchResult;
+  Map<String, dynamic>? _directSearchResult;
+  Map<String, dynamic>? _indexSearchResult;
   Map<String, dynamic>? _indexResult;
   bool _loading = false;
 
@@ -97,12 +98,12 @@ class _FitsOperationsScreenState extends State<FitsOperationsScreen> {
                         child: TextField(
                           controller: _queryController,
                           decoration: const InputDecoration(
-                            labelText: 'Direct FITS search query',
+                            labelText: 'Search query',
                             border: OutlineInputBorder(),
                           ),
                           onSubmitted: (_) => _run(
                             () => _apiClient.searchEntityFits(_entityController.text.trim(), _queryController.text.trim()),
-                            (result) => _searchResult = result,
+                            (result) => _directSearchResult = result,
                           ),
                         ),
                       ),
@@ -112,10 +113,24 @@ class _FitsOperationsScreenState extends State<FitsOperationsScreen> {
                             ? null
                             : () => _run(
                                   () => _apiClient.searchEntityFits(_entityController.text.trim(), _queryController.text.trim()),
-                                  (result) => _searchResult = result,
+                                  (result) => _directSearchResult = result,
                                 ),
                         icon: const Icon(Icons.search),
-                        label: const Text('Search FITS'),
+                        label: const Text('Direct search'),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        onPressed: _loading
+                            ? null
+                            : () => _run(
+                                  () => _apiClient.searchFitsIndex(
+                                    query: _queryController.text.trim(),
+                                    entityExternalId: _entityController.text.trim(),
+                                  ),
+                                  (result) => _indexSearchResult = result,
+                                ),
+                        icon: const Icon(Icons.saved_search),
+                        label: const Text('Index search'),
                       ),
                     ],
                   ),
@@ -132,9 +147,13 @@ class _FitsOperationsScreenState extends State<FitsOperationsScreen> {
             child: ListView(
               children: [
                 if (_inspectResult != null) _InspectionPanel(result: _inspectResult!),
-                if (_searchResult != null) ...[
+                if (_directSearchResult != null) ...[
                   const SizedBox(height: 16),
-                  _SearchPanel(result: _searchResult!),
+                  _SearchPanel(title: 'Direct FITS search', result: _directSearchResult!),
+                ],
+                if (_indexSearchResult != null) ...[
+                  const SizedBox(height: 16),
+                  _SearchPanel(title: 'Index-backed FITS search', result: _indexSearchResult!),
                 ],
                 if (_indexResult != null) ...[
                   const SizedBox(height: 16),
@@ -180,8 +199,9 @@ class _InspectionPanel extends StatelessWidget {
 }
 
 class _SearchPanel extends StatelessWidget {
-  const _SearchPanel({required this.result});
+  const _SearchPanel({required this.title, required this.result});
 
+  final String title;
   final Map<String, dynamic> result;
 
   @override
@@ -193,9 +213,9 @@ class _SearchPanel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Direct FITS search', style: Theme.of(context).textTheme.titleLarge),
+            Text(title, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
-            Text('Results: ${result['result_count']} from container ${result['container_version_id']}'),
+            Text('Results: ${result['result_count']} from container ${result['container_version_id'] ?? '-'}'),
             const SizedBox(height: 12),
             if (results.isEmpty)
               const Text('No FITS matches found.')
