@@ -7,10 +7,9 @@ from typing import Any
 
 import numpy as np
 from astropy.io import fits
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from trustvault.core.hashing import sha256_bytes
 from trustvault.core.storage_uri import parse_storage_uri
 from trustvault.db.models import (
     AuditEvent,
@@ -19,10 +18,8 @@ from trustvault.db.models import (
     Entity,
     EntityContainerVersion,
     EvidenceObject,
-    ExtractionEvent,
     FitsIndexEntry,
     Job,
-    RetentionPolicy,
     Ruleset,
     RulesetRule,
     SourceSystem,
@@ -316,11 +313,15 @@ class TrustVaultFeatureService:
                     {
                         "evidence_object_id": item.get("id"),
                         "filename": item.get("filename"),
+                        "category": item.get("category"),
+                        "document_type": item.get("document_type"),
                         "retention_class": item.get("retention_class"),
                         "retention_until": item.get("retention_until"),
+                        "retention_basis": item.get("retention_basis"),
                         "legal_hold_status": item.get("legal_hold_status"),
                         "deletion_eligible": item.get("deletion_eligible"),
                         "sensitivity": item.get("sensitivity"),
+                        "jurisdiction": item.get("jurisdiction"),
                     }
                     for item in manifest
                 ],
