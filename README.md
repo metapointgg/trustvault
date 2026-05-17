@@ -111,10 +111,12 @@ The upload will:
 2. create/update the customer entity;
 3. ingest payload files while ignoring macOS sidecar files;
 4. capture `.search.txt` sidecar text as searchable/OCR text;
-5. store source payloads;
-6. rebuild the affected customer FITS archive;
-7. rebuild the FITS-derived index for that customer;
-8. audit the ingestion.
+5. parse `.eml` files into searchable email subject/header/body text where no sidecar text is provided;
+6. calculate default retention dates into the FITS manifest;
+7. store source payloads;
+8. rebuild the affected customer FITS archive;
+9. rebuild the FITS-derived index for that customer;
+10. audit the ingestion.
 
 ## Smoke-test commands
 
@@ -131,6 +133,8 @@ curl -X POST "http://localhost:8000/api/v1/completeness/entities/CUST-000001/eva
   -d '{}' | python3 -m json.tool
 curl -s "http://localhost:8000/api/v1/retention/entities/CUST-000001" | python3 -m json.tool
 curl -s "http://localhost:8000/api/v1/integrity/entities/CUST-000001" | python3 -m json.tool
+curl -s "http://localhost:8000/api/v1/extraction/entities/CUST-000001/report" | python3 -m json.tool
+curl -s "http://localhost:8000/api/v1/comparison/entities/CUST-000001/fits-vs-db?query=passport" | python3 -m json.tool
 ```
 
 Download the current FITS archive by first locating the current version:
