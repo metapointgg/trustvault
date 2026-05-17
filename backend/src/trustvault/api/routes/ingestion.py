@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from trustvault.audit.events import BULK_INGESTION_RUN
 from trustvault.audit.logger import AuditLogger
 from trustvault.api.dependencies import get_audit_logger, get_database
+from trustvault.auth.dependencies import require_permission
+from trustvault.auth.models import CurrentUser
 from trustvault.core.container_builder import EntityContainerBuilder
 from trustvault.core.fits_reader import FitsContainerReader
 from trustvault.core.ingestion import LocalEvidenceIngestionService
@@ -101,6 +103,7 @@ def ingest_text_evidence(
     request: TextEvidenceIngestionRequest,
     db: Session = Depends(get_database),
     audit_logger: AuditLogger = Depends(get_audit_logger),
+    current_user: CurrentUser = Depends(require_permission("ingestion:submit")),
 ) -> IngestionResponse:
     service = LocalEvidenceIngestionService(db)
     result = service.ingest_text_evidence(
@@ -120,6 +123,7 @@ def ingest_text_evidence(
     )
     audit_logger.log(
         BULK_INGESTION_RUN,
+        user_id=current_user.subject,
         entity_ids=[result.entity_id],
         object_ids=[result.evidence_object_id],
         metadata={
@@ -139,6 +143,7 @@ def ingest_base64_evidence(
     request: Base64EvidenceIngestionRequest,
     db: Session = Depends(get_database),
     audit_logger: AuditLogger = Depends(get_audit_logger),
+    current_user: CurrentUser = Depends(require_permission("ingestion:submit")),
 ) -> IngestionResponse:
     service = LocalEvidenceIngestionService(db)
     result = service.ingest_base64_evidence(
@@ -159,6 +164,7 @@ def ingest_base64_evidence(
     )
     audit_logger.log(
         BULK_INGESTION_RUN,
+        user_id=current_user.subject,
         entity_ids=[result.entity_id],
         object_ids=[result.evidence_object_id],
         metadata={
@@ -178,6 +184,7 @@ def ingest_source_folder_base64(
     request: SourceFolderIngestionRequest,
     db: Session = Depends(get_database),
     audit_logger: AuditLogger = Depends(get_audit_logger),
+    current_user: CurrentUser = Depends(require_permission("ingestion:submit")),
 ) -> SourceFolderIngestionResponse:
     zip_bytes = base64.b64decode(request.zip_base64)
     result = SourceFolderIngestionService(db).ingest_zip_bytes(
@@ -193,6 +200,7 @@ def ingest_source_folder_base64(
     )
     audit_logger.log(
         BULK_INGESTION_RUN,
+        user_id=current_user.subject,
         entity_ids=[result.entity_id],
         object_ids=result.evidence_object_ids,
         metadata={
@@ -215,6 +223,7 @@ async def ingest_source_folder_upload(
     rebuild_index: bool = True,
     db: Session = Depends(get_database),
     audit_logger: AuditLogger = Depends(get_audit_logger),
+    current_user: CurrentUser = Depends(require_permission("ingestion:submit")),
 ) -> SourceFolderIngestionResponse:
     zip_bytes = await file.read()
     result = SourceFolderIngestionService(db).ingest_zip_bytes(zip_bytes)
@@ -227,6 +236,7 @@ async def ingest_source_folder_upload(
     )
     audit_logger.log(
         BULK_INGESTION_RUN,
+        user_id=current_user.subject,
         entity_ids=[result.entity_id],
         object_ids=result.evidence_object_ids,
         metadata={
