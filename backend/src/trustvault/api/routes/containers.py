@@ -11,6 +11,7 @@ from trustvault.audit.logger import AuditLogger
 from trustvault.api.dependencies import get_audit_logger, get_database
 from trustvault.core.container_builder import EntityContainerBuilder
 from trustvault.core.container_normalisation import ContainerVersionNormaliser
+from trustvault.core.container_status import ContainerStatusService
 from trustvault.core.integrity import ContainerIntegrityValidator
 from trustvault.db.models import Entity, EntityContainerVersion
 
@@ -78,6 +79,20 @@ class ContainerNormalisationResponse(BaseModel):
     skipped: list[dict[str, Any]]
 
 
+class ContainerStatusResponse(BaseModel):
+    entity_count: int
+    entities_with_current_fits: int
+    entities_missing_current_fits: int
+    entities: list[dict[str, Any]]
+
+
+class RebuildMissingFitsResponse(BaseModel):
+    rebuilt_count: int
+    skipped_count: int
+    rebuilt: list[dict[str, Any]]
+    skipped: list[dict[str, Any]]
+
+
 def serialise_version(version: EntityContainerVersion) -> ContainerVersionResponse:
     return ContainerVersionResponse(
         id=str(version.id),
@@ -109,6 +124,12 @@ def list_entity_container_versions(
         .order_by(EntityContainerVersion.version_number.desc())
     ).all()
     return [serialise_version(version) for version in versions]
+
+
+@router.get("/admin/status", response_model=ContainerStatusResponse)
+def container_status(db: Session = Depends(get_database)) -> ContainerStatusResponse:
+    result = ContainerStatusService(db).entity_container_status()
+    return ContainerStatusResponse(**result)
 
 
 @router.post("/rebuild", response_model=RebuildContainerResponse)
@@ -181,3 +202,21 @@ def normalise_legacy_placeholders(
         },
     )
     return ContainerNormalisationResponse(**result)
+
+
+@router.post("/admin/rebuild-missing-current-fits", response_model=RebuildMissingFitsResponse)
+def rebuild_missing_current_fits(
+    db: Session = Depends(get_database),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+) -> RebuildMissingFitsResponse:
+    result = ContainerStatusService(db).rebuild_missing_current_fits()
+    audit_logger.log(
+        CONTAINER_REBUILT,
+        metadata={
+            "operation": "rebuild_missing_current_fits",
+            "rebuilt_count": result["rebuilt_count"],
+            "skipped_count": result["skipped_count"],
+            "rebuilt_entity_ids": [item["entity_id"] for item in result["rebuilt"]],
+        },
+    )
+    return RebuildMissingFitsResponse(**result)
