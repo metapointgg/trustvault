@@ -76,6 +76,63 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
     );
   }
 
+  Future<void> _createRegulatorPack(Map<String, dynamic> entity) async {
+    final result = await _apiClient.createRegulatorPack('${entity['external_id']}');
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Created regulator pack ${result['id']}')),
+    );
+  }
+
+  Future<void> _queueRegulatorPack(Map<String, dynamic> entity) async {
+    await _apiClient.queueRegulatorPackExport('${entity['external_id']}');
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Queued regulator pack export for ${entity['external_id']}')),
+    );
+  }
+
+  Future<void> _showExportPacks(Map<String, dynamic> entity) async {
+    final packs = await _apiClient.getEntityExportPacks('${entity['external_id']}');
+    if (!mounted) return;
+
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('${entity['display_name']} export packs'),
+          content: SizedBox(
+            width: 880,
+            child: packs.isEmpty
+                ? const Text('No export packs have been generated yet.')
+                : ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: packs.length,
+                    separatorBuilder: (_, __) => const Divider(),
+                    itemBuilder: (context, index) {
+                      final pack = packs[index] as Map<String, dynamic>;
+                      return ListTile(
+                        leading: const Icon(Icons.inventory_2_outlined),
+                        title: Text('${pack['export_type']} - ${pack['status']}'),
+                        subtitle: SelectableText(
+                          'Pack ID: ${pack['id']}\n'
+                          'URI: ${pack['storage_uri']}\n'
+                          'SHA-256: ${pack['sha256']}\n'
+                          'Evidence objects: ${pack['evidence_object_count']}\n'
+                          'Size: ${pack['size_bytes']} bytes',
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close')),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _validateContainerVersion(Map<String, dynamic> version) async {
     final result = await _apiClient.validateContainerVersion('${version['id']}');
     if (!mounted) return;
@@ -374,6 +431,21 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
                                           onPressed: () => _showContainerVersions(entity),
                                           icon: const Icon(Icons.history),
                                           label: const Text('Container versions'),
+                                        ),
+                                        TextButton.icon(
+                                          onPressed: () => _createRegulatorPack(entity),
+                                          icon: const Icon(Icons.inventory_2_outlined),
+                                          label: const Text('Export pack'),
+                                        ),
+                                        TextButton.icon(
+                                          onPressed: () => _queueRegulatorPack(entity),
+                                          icon: const Icon(Icons.outbox_outlined),
+                                          label: const Text('Queue export'),
+                                        ),
+                                        TextButton.icon(
+                                          onPressed: () => _showExportPacks(entity),
+                                          icon: const Icon(Icons.folder_zip_outlined),
+                                          label: const Text('Export packs'),
                                         ),
                                       ],
                                     ),
