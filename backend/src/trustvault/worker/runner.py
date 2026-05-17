@@ -10,6 +10,7 @@ from trustvault.audit.logger import AuditLogger
 from trustvault.db.models import Job
 from trustvault.db.session import SessionLocal
 from trustvault.worker.handlers.containers import handle_rebuild_entity_container
+from trustvault.worker.handlers.fits_index import handle_rebuild_fits_index
 from trustvault.worker.handlers.ingestion import handle_ingest_text_evidence
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ class WorkerRunner:
         self.handlers: dict[str, JobHandler] = {
             "ingest_text_evidence": _ingest_text_adapter,
             "rebuild_entity_container": handle_rebuild_entity_container,
+            "rebuild_fits_index": handle_rebuild_fits_index,
         }
 
     def run_forever(self) -> None:
