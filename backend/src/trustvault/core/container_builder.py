@@ -1,7 +1,9 @@
 import io
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from email import policy
+from email.parser import BytesParser
 from typing import Any
 
 import numpy as np
@@ -47,6 +49,19 @@ class EntityContainerBuilder:
     completeness results and UI views are operational projections that can be rebuilt
     from the FITS container.
     """
+
+    DEFAULT_RETENTION_YEARS: dict[str, int] = {
+        "customer_evidence": 7,
+        "identity": 7,
+        "proof_of_address": 7,
+        "source_of_wealth": 7,
+        "cdd_review": 7,
+        "communications": 7,
+        "statements": 7,
+        "structured_extracts": 7,
+        "large_evidence": 7,
+        "audit": 10,
+    }
 
     def __init__(self, db: Session):
         self.db = db
@@ -192,6 +207,10 @@ class EntityContainerBuilder:
         metadata = evidence.metadata_json or {}
         category = metadata.get("category") or self._category_from_object_type(evidence.object_type)
         document_type = metadata.get("document_type") or evidence.object_type
+        retention_class = metadata.get("retention_class") or category or "customer_evidence"
+        legal_hold_status = metadata.get("legal_hold_status", "none")
+        retention_until = metadata.get("retention_until") or self._calculate_retention_until(evidence, retention_class)
+        deletion_eligible = bool(metadata.get("deletion_eligible", False)) and legal_hold_status == "none"
         return {
             "id": str(evidence.id),
             "object_id": str(evidence.id),
@@ -210,10 +229,11 @@ class EntityContainerBuilder:
             "size_bytes": len(data),
             "snapshot_id": "ENTITY_ARCHIVE",
             "snapshot_type": "Full Entity Archive",
-            "retention_class": metadata.get("retention_class", "customer_evidence"),
-            "retention_until": metadata.get("retention_until"),
-            "legal_hold_status": metadata.get("legal_hold_status", "none"),
-            "deletion_eligible": metadata.get("deletion_eligible", False),
+            "retention_class": retention_class,
+            "retention_until": retention_until,
+            "retention_basis": metadata.get("retention_basis", "calculated_default_policy"),
+            "legal_hold_status": legal_hold_status,
+            "deletion_eligible": deletion_eligible,
             "sensitivity": metadata.get("sensitivity", "confidential"),
             "jurisdiction": metadata.get("jurisdiction"),
         }
@@ -284,7 +304,7 @@ class EntityContainerBuilder:
         built_at: str,
     ) -> bytes:
         primary = fits.PrimaryHDU()
-        primary.header["TVVER"] = "0.2"
+        primary.header["TVVER"] = "0.3"
         primary.header["EECVER"] = "0.3"
         primary.header["ENTITY"] = entity.external_id[:68]
         primary.header["ENTUUID"] = str(entity.id)[:68]
@@ -334,14 +354,14 @@ class EntityContainerBuilder:
         ]
         extraction_events = [
             {
-                "object_id": str(evidence.id),
-                "filename": filename,
-                "event_type": "SEARCH_TEXT_CAPTURED" if evidence.metadata_json.get("search_text") else "PAYLOAD_PRESERVED",
-                "provider": evidence.metadata_json.get("extraction_provider", "ingestion"),
-                "confidence": evidence.metadata_json.get("extraction_confidence"),
+                "object_id": entry["object_id"],
+                "filename": entry["filename"],
+                "event_type": "SEARCH_TEXT_CAPTURED" if entry["character_count"] else "PAYLOAD_PRESERVED",
+                "provider": entry["extraction_method"],
+                "confidence": entry["extraction_confidence"],
                 "timestamp": built_at,
             }
-            for evidence, _, filename in evidence_payloads
+            for entry in ocr_text
         ]
 
         hdus: list[fits.hdu.base.ExtensionHDU] = [
@@ -369,6 +389,10 @@ class EntityContainerBuilder:
         search_text = metadata.get("search_text")
         method = metadata.get("search_text_source")
         confidence = metadata.get("extraction_confidence")
+        if not search_text and self._is_email_payload(evidence, filename):
+            search_text = self._extract_email_text(data)
+            method = "email_message_parse" if search_text else "email_message_parse_empty"
+            confidence = 1.0 if search_text else 0.0
         if not search_text and (evidence.content_type or "").startswith("text/"):
             search_text = data.decode("utf-8", errors="replace")
             method = "direct_text"
@@ -382,6 +406,54 @@ class EntityContainerBuilder:
             "extracted_at": built_at,
             "character_count": len(search_text or ""),
         }
+
+    def _extract_email_text(self, data: bytes) -> str:
+        try:
+            message = BytesParser(policy=policy.default).parsebytes(data)
+        except Exception:
+            return data.decode("utf-8", errors="replace")
+
+        lines = [
+            f"Subject: {message.get('subject', '')}",
+            f"From: {message.get('from', '')}",
+            f"To: {message.get('to', '')}",
+            f"Cc: {message.get('cc', '')}",
+            f"Date: {message.get('date', '')}",
+            "",
+        ]
+        body = message.get_body(preferencelist=("plain", "html"))
+        if body is not None:
+            try:
+                lines.append(body.get_content())
+            except Exception:
+                payload = body.get_payload(decode=True)
+                if isinstance(payload, bytes):
+                    lines.append(payload.decode("utf-8", errors="replace"))
+        else:
+            for part in message.walk():
+                if part.is_multipart():
+                    continue
+                content_type = part.get_content_type()
+                if content_type not in {"text/plain", "text/html"}:
+                    continue
+                payload = part.get_payload(decode=True)
+                if isinstance(payload, bytes):
+                    lines.append(payload.decode(part.get_content_charset() or "utf-8", errors="replace"))
+        return "\n".join(line for line in lines if line is not None).strip()
+
+    def _is_email_payload(self, evidence: EvidenceObject, filename: str) -> bool:
+        content_type = (evidence.content_type or "").lower()
+        return content_type == "message/rfc822" or filename.lower().endswith(".eml") or evidence.object_type.lower() == "email"
+
+    def _calculate_retention_until(self, evidence: EvidenceObject, retention_class: str) -> str:
+        metadata = evidence.metadata_json or {}
+        years = int(metadata.get("retention_years") or self.DEFAULT_RETENTION_YEARS.get(retention_class, 7))
+        base = evidence.created_at
+        if base is None:
+            base = datetime.now(timezone.utc)
+        if base.tzinfo is None:
+            base = base.replace(tzinfo=timezone.utc)
+        return (base + timedelta(days=years * 365)).date().isoformat()
 
     def _category_from_object_type(self, object_type: str) -> str:
         lowered = object_type.lower()
