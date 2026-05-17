@@ -11,20 +11,31 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   final TrustVaultApiClient _apiClient = TrustVaultApiClient();
-  final TextEditingController _queryController = TextEditingController(text: 'verified');
+  final TextEditingController _queryController = TextEditingController(text: 'passport');
+  final TextEditingController _entityController = TextEditingController(text: 'CUST-000001');
 
   Future<Map<String, dynamic>>? _future;
+  bool _directFits = true;
 
   @override
   void dispose() {
     _queryController.dispose();
+    _entityController.dispose();
     super.dispose();
   }
 
   void _search() {
     final query = _queryController.text.trim();
+    final entity = _entityController.text.trim();
     if (query.isEmpty) return;
-    setState(() => _future = _apiClient.searchEvidence(query));
+
+    final Future<Map<String, dynamic>> nextFuture = _directFits && entity.isNotEmpty
+        ? _apiClient.searchEntityFits(entity, query)
+        : _apiClient.searchFitsIndex(query: query, entityExternalId: entity.isEmpty ? null : entity);
+
+    setState(() {
+      _future = nextFuture;
+    });
   }
 
   Future<void> _showPreview(Map<String, dynamic> result) async {
@@ -35,7 +46,7 @@ class _SearchScreenState extends State<SearchScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text('${result['entity_display_name']}'),
+          title: Text('${result['entity_display_name'] ?? result['filename'] ?? 'Evidence preview'}'),
           content: SizedBox(
             width: 760,
             child: SingleChildScrollView(
@@ -82,28 +93,57 @@ class _SearchScreenState extends State<SearchScreen> {
         children: [
           Text('Evidence search', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
-          const Text('Search stored local text evidence and metadata. This is the first lightweight search layer before PostgreSQL full-text search.'),
+          const Text('Search directly inside a customer FITS archive, or use the rebuilt index for broader search.'),
           const SizedBox(height: 24),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(20),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _queryController,
-                      decoration: const InputDecoration(
-                        labelText: 'Search query',
-                        border: OutlineInputBorder(),
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: TextField(
+                          controller: _queryController,
+                          decoration: const InputDecoration(
+                            labelText: 'Search query',
+                            border: OutlineInputBorder(),
+                          ),
+                          onSubmitted: (_) => _search(),
+                        ),
                       ),
-                      onSubmitted: (_) => _search(),
-                    ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: _entityController,
+                          decoration: const InputDecoration(
+                            labelText: 'Customer external ID',
+                            border: OutlineInputBorder(),
+                          ),
+                          onSubmitted: (_) => _search(),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      FilledButton.icon(
+                        onPressed: _search,
+                        icon: const Icon(Icons.search),
+                        label: const Text('Search'),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  FilledButton.icon(
-                    onPressed: _search,
-                    icon: const Icon(Icons.search),
-                    label: const Text('Search'),
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Direct FITS search'),
+                    subtitle: const Text('When enabled, search reads the selected customer FITS archive directly.'),
+                    value: _directFits,
+                    onChanged: (value) {
+                      setState(() {
+                        _directFits = value;
+                      });
+                    },
                   ),
                 ],
               ),
@@ -138,15 +178,15 @@ class _SearchScreenState extends State<SearchScreen> {
                           return Card(
                             child: ListTile(
                               leading: const Icon(Icons.manage_search_outlined),
-                              title: Text('${result['entity_display_name']}'),
+                              title: Text('${result['filename'] ?? result['entity_display_name'] ?? 'Evidence'}'),
                               subtitle: Text(
                                 'External ID: ${result['entity_external_id']}\n'
                                 'Object: ${result['object_type']} from ${result['source_system']}\n'
-                                'Match: ${result['match_source']}\n'
-                                '${result['snippet'] ?? result['storage_uri']}',
+                                'HDU: ${result['hdu_name'] ?? '-'}\n'
+                                '${result['snippet'] ?? result['storage_uri'] ?? ''}',
                               ),
                               trailing: TextButton.icon(
-                                onPressed: () => _showPreview(result),
+                                onPressed: result['evidence_object_id'] == null ? null : () => _showPreview(result),
                                 icon: const Icon(Icons.visibility_outlined),
                                 label: const Text('Preview'),
                               ),
