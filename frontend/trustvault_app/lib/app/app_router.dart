@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../features/audit/audit_screen.dart';
 import '../features/dashboard/dashboard_screen.dart';
 import '../features/entities/entities_screen.dart';
+import '../features/feature_status/feature_status_screen.dart';
 import '../features/fits/fits_operations_screen.dart';
 import '../features/jobs/jobs_screen.dart';
 import '../features/licence/licence_screen.dart';
@@ -15,34 +16,87 @@ final appRouter = GoRouter(
     ShellRoute(
       builder: (context, state, child) => AppShell(child: child),
       routes: [
+        GoRoute(path: '/', builder: (context, state) => const DashboardScreen()),
         GoRoute(
-          path: '/',
-          builder: (context, state) => const DashboardScreen(),
+          path: '/health',
+          builder: (context, state) => FeatureStatusScreen(
+            title: 'Health',
+            description: 'Operational status for API, database, storage, queue, worker, AI and OCR providers.',
+            loader: (api) => api.getApiHealth(),
+          ),
         ),
         GoRoute(
-          path: '/entities',
-          builder: (context, state) => const EntitiesScreen(),
+          path: '/comparison',
+          builder: (context, state) => FeatureStatusScreen(
+            title: 'Comparison',
+            description: 'Compares FITS archive state with database/index projections. Defaults to CUST-000001 where present.',
+            loader: (api) => api.compareFitsVsDatabase('CUST-000001'),
+          ),
+        ),
+        GoRoute(path: '/customers', builder: (context, state) => const EntitiesScreen()),
+        GoRoute(path: '/entities', builder: (context, state) => const EntitiesScreen()),
+        GoRoute(path: '/search', builder: (context, state) => const SearchScreen()),
+        GoRoute(
+          path: '/completeness',
+          builder: (context, state) => FeatureStatusScreen(
+            title: 'Completeness',
+            description: 'Evaluates required evidence rules against the current FITS archive manifest.',
+            loader: (api) => api.evaluateCompleteness('CUST-000001'),
+          ),
         ),
         GoRoute(
-          path: '/search',
-          builder: (context, state) => const SearchScreen(),
+          path: '/rulesets',
+          builder: (context, state) => FeatureStatusScreen(
+            title: 'Rulesets',
+            description: 'Required-evidence rulesets used by completeness reviews.',
+            loader: (api) async => <String, dynamic>{'rulesets': await api.getRulesets()},
+          ),
+        ),
+        GoRoute(path: '/ingestion', builder: (context, state) => const EntitiesScreen()),
+        GoRoute(
+          path: '/extraction',
+          builder: (context, state) => FeatureStatusScreen(
+            title: 'Extraction',
+            description: 'OCR/search text, extracted fields and extraction events read from the current FITS archive.',
+            loader: (api) => api.getExtractionReport('CUST-000001'),
+          ),
         ),
         GoRoute(
-          path: '/fits',
-          builder: (context, state) => const FitsOperationsScreen(),
+          path: '/retention',
+          builder: (context, state) => FeatureStatusScreen(
+            title: 'Retention',
+            description: 'Retention, sensitivity and legal-hold state derived from FITS manifest metadata.',
+            loader: (api) => api.getRetentionReport(),
+          ),
         ),
         GoRoute(
-          path: '/jobs',
-          builder: (context, state) => const JobsScreen(),
+          path: '/integrity',
+          builder: (context, state) => FeatureStatusScreen(
+            title: 'Integrity',
+            description: 'Fixity and integrity checks for current FITS archives and payload HDUs.',
+            loader: (api) => api.getIntegritySummary(),
+          ),
         ),
         GoRoute(
-          path: '/audit',
-          builder: (context, state) => const AuditScreen(),
+          path: '/export',
+          builder: (context, state) => FeatureStatusScreen(
+            title: 'Export',
+            description: 'FITS-native archive export model. The FITS file is the primary export artefact.',
+            loader: (api) => api.getExportStatus(),
+          ),
         ),
         GoRoute(
-          path: '/licence',
-          builder: (context, state) => const LicenceScreen(),
+          path: '/api',
+          builder: (context, state) => FeatureStatusScreen(
+            title: 'API',
+            description: 'TrustVault API feature status and archive model.',
+            loader: (api) => api.getApiStatus(),
+          ),
         ),
+        GoRoute(path: '/fits', builder: (context, state) => const FitsOperationsScreen()),
+        GoRoute(path: '/jobs', builder: (context, state) => const JobsScreen()),
+        GoRoute(path: '/audit', builder: (context, state) => const AuditScreen()),
+        GoRoute(path: '/licence', builder: (context, state) => const LicenceScreen()),
       ],
     ),
   ],
