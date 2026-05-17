@@ -102,6 +102,7 @@ class EntityContainerBuilder:
         self.db.execute(
             update(EntityContainerVersion)
             .where(EntityContainerVersion.entity_id == entity.id)
+            .where(EntityContainerVersion.status == "current")
             .values(status="superseded")
         )
 
