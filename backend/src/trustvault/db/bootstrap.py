@@ -10,6 +10,7 @@ from trustvault.db.models import (  # noqa: F401
     Entity,
     EntityContainerVersion,
     EvidenceObject,
+    FitsIndexEntry,
     Job,
     LicenceStatus,
 )
