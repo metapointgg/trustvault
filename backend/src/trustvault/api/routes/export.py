@@ -1,13 +1,15 @@
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from trustvault.audit.events import EVIDENCE_PACK_EXPORTED, EVIDENCE_PREVIEWED
 from trustvault.audit.logger import AuditLogger
 from trustvault.api.dependencies import get_audit_logger, get_database
+from trustvault.auth.dependencies import require_permission
+from trustvault.auth.models import CurrentUser
 from trustvault.core.fits_reader import FitsContainerReader
 from trustvault.core.storage_uri import parse_storage_uri
 from trustvault.db.models import EntityContainerVersion
@@ -37,16 +39,27 @@ def _container_bytes(container: EntityContainerVersion) -> bytes:
     return LocalFilesystemStorage(get_settings().local_storage_root).get_bytes(parsed.bucket, parsed.key)
 
 
+def _ensure_export_allowed() -> None:
+    if get_settings().export_approval_required:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Export approval workflow is enabled. Submit an export approval request before downloading FITS archives.",
+        )
+
+
 @router.get("/containers/{container_version_id}/fits")
 def download_fits_archive(
     container_version_id: str,
     db: Session = Depends(get_database),
     audit_logger: AuditLogger = Depends(get_audit_logger),
+    current_user: CurrentUser = Depends(require_permission("export:request")),
 ) -> Response:
+    _ensure_export_allowed()
     container = _container(db, container_version_id)
     data = _container_bytes(container)
     audit_logger.log(
         EVIDENCE_PACK_EXPORTED,
+        user_id=current_user.subject,
         entity_ids=[str(container.entity_id)],
         export_path=container.storage_uri,
         metadata={
@@ -69,13 +82,21 @@ def download_fits_archive(
 
 
 @router.get("/containers/{container_version_id}/manifest")
-def get_fits_manifest(container_version_id: str, db: Session = Depends(get_database)) -> dict[str, Any]:
+def get_fits_manifest(
+    container_version_id: str,
+    db: Session = Depends(get_database),
+    current_user: CurrentUser = Depends(require_permission("evidence:read")),
+) -> dict[str, Any]:
     container = _container(db, container_version_id)
     return container.manifest_json
 
 
 @router.get("/containers/{container_version_id}/hash-report")
-def get_fits_hash_report(container_version_id: str, db: Session = Depends(get_database)) -> dict[str, Any]:
+def get_fits_hash_report(
+    container_version_id: str,
+    db: Session = Depends(get_database),
+    current_user: CurrentUser = Depends(require_permission("evidence:read")),
+) -> dict[str, Any]:
     container = _container(db, container_version_id)
     return container.hash_report_json
 
@@ -85,16 +106,46 @@ def inspect_fits_archive(
     container_version_id: str,
     db: Session = Depends(get_database),
     audit_logger: AuditLogger = Depends(get_audit_logger),
+    current_user: CurrentUser = Depends(require_permission("evidence:preview")),
 ) -> dict[str, Any]:
     _container(db, container_version_id)
     result = FitsContainerReader(db).inspect_version(container_version_id)
     audit_logger.log(
         EVIDENCE_PREVIEWED,
+        user_id=current_user.subject,
         entity_ids=[result["entity_id"]],
         export_path=result["storage_uri"],
         metadata={"operation": "inspect_fits_archive", "container_version_id": container_version_id},
     )
     return result
+
+
+@router.post("/approval-requests")
+def request_export_approval(
+    container_version_id: str,
+    reason: str,
+    current_user: CurrentUser = Depends(require_permission("export:request")),
+) -> dict[str, Any]:
+    return {
+        "status": "requested",
+        "container_version_id": container_version_id,
+        "requested_by": current_user.subject,
+        "reason": reason,
+        "message": "Approval workflow scaffold recorded. Persisted approval objects will be added with the workflow tables.",
+    }
+
+
+@router.post("/approval-requests/{request_id}/approve")
+def approve_export_request(
+    request_id: str,
+    current_user: CurrentUser = Depends(require_permission("export:approve")),
+) -> dict[str, Any]:
+    return {
+        "status": "approved",
+        "request_id": request_id,
+        "approved_by": current_user.subject,
+        "message": "Approval workflow scaffold approved. Persisted approval objects will be added with the workflow tables.",
+    }
 
 
 @router.get("/status")
@@ -103,5 +154,6 @@ def export_status() -> dict[str, Any]:
         "export_model": "fits_native",
         "primary_export": "current_or_versioned_FITS_archive",
         "source_of_truth": "FITS container",
-        "secondary_report_packs": "not_enabled_in_this_build",
+        "secondary_report_packs": "derived_report_pack_scaffolded_not_authoritative",
+        "approval_required": get_settings().export_approval_required,
     }
