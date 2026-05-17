@@ -102,7 +102,50 @@ class RegulatorEvidencePackExporter:
             .where(ExportPack.entity_id == entity.id)
             .order_by(ExportPack.created_at.desc())
         ).all()
-        return [self._serialise_export_pack(pack, entity, None) for pack in packs]
+        return [self._serialise_export_pack(pack, entity, self.db.get(EntityContainerVersion, pack.container_version_id)) for pack in packs]
+
+    def get_pack(self, export_pack_id: str) -> dict[str, Any]:
+        pack = self._get_pack(export_pack_id)
+        entity = self.db.get(Entity, pack.entity_id)
+        container = self.db.get(EntityContainerVersion, pack.container_version_id)
+        return self._serialise_export_pack(pack, entity, container)
+
+    def get_pack_bytes(self, export_pack_id: str) -> tuple[dict[str, Any], bytes]:
+        pack = self._get_pack(export_pack_id)
+        parsed = parse_storage_uri(pack.storage_uri)
+        if parsed.provider != "local":
+            raise ValueError(f"Download is not yet implemented for provider: {parsed.provider}")
+        entity = self.db.get(Entity, pack.entity_id)
+        container = self.db.get(EntityContainerVersion, pack.container_version_id)
+        return self._serialise_export_pack(pack, entity, container), self.storage.get_bytes(parsed.bucket, parsed.key)
+
+    def inspect_pack_contents(self, export_pack_id: str) -> dict[str, Any]:
+        pack_metadata, pack_bytes = self.get_pack_bytes(export_pack_id)
+        with zipfile.ZipFile(io.BytesIO(pack_bytes), mode="r") as archive:
+            entries = [
+                {
+                    "path": info.filename,
+                    "size_bytes": info.file_size,
+                    "compressed_size_bytes": info.compress_size,
+                    "sha256": sha256_bytes(archive.read(info.filename)),
+                }
+                for info in archive.infolist()
+            ]
+        return {
+            "export_pack": pack_metadata,
+            "entry_count": len(entries),
+            "entries": entries,
+        }
+
+    def _get_pack(self, export_pack_id: str) -> ExportPack:
+        try:
+            parsed_id = uuid.UUID(export_pack_id)
+        except ValueError as exc:
+            raise ValueError("Invalid export pack id") from exc
+        pack = self.db.get(ExportPack, parsed_id)
+        if pack is None:
+            raise ValueError("Export pack not found")
+        return pack
 
     def _build_export_manifest(
         self,
