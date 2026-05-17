@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from trustvault.api.routes import audit, containers, dashboard, entities, evidence, health, ingestion, jobs, licence
+from trustvault.api.routes import audit, containers, dashboard, entities, evidence, fits, health, ingestion, jobs, licence
 from trustvault.db.bootstrap import initialise_database
 from trustvault.settings import get_settings
 
@@ -31,6 +31,7 @@ app.include_router(health.router)
 app.include_router(dashboard.router)
 app.include_router(entities.router)
 app.include_router(evidence.router)
+app.include_router(fits.router)
 app.include_router(ingestion.router)
 app.include_router(containers.router)
 app.include_router(jobs.router)
