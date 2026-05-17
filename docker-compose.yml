@@ -8,7 +8,8 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     volumes:
       - ./local-data:/app/local-data
       - ./backend/config:/app/config:ro
@@ -20,7 +21,8 @@ services:
     env_file:
       - .env
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     volumes:
       - ./local-data:/app/local-data
       - ./backend/config:/app/config:ro
@@ -33,6 +35,11 @@ services:
       POSTGRES_PASSWORD: trustvault_dev_password
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trustvault -d trustvault"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
