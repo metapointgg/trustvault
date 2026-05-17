@@ -72,39 +72,22 @@ class FitsContainerReader:
         version = self._get_current_fits_version(entity.id)
         normalised_query = query.strip().lower()
         if not normalised_query:
-            return {
-                "query": query,
-                "entity_id": str(entity.id),
-                "entity_external_id": entity.external_id,
-                "container_version_id": str(version.id),
-                "result_count": 0,
-                "results": [],
-            }
+            return self._empty_search_result(query, entity, version)
 
         data = self._read_container_bytes(version)
         results: list[dict[str, Any]] = []
         with fits.open(io.BytesIO(data), checksum=True) as hdul:
             manifest = self._try_read_json_hdu(hdul, "MANIFEST") or []
             ocr_rows = self._try_read_json_hdu(hdul, "OCR_TEXT") or []
-            manifest_by_hdu = {row.get("hdu_name"): row for row in manifest if isinstance(row, dict)}
             ocr_by_object = {row.get("object_id"): row for row in ocr_rows if isinstance(row, dict)}
+            hdu_by_name = {hdu.name: hdu for hdu in hdul}
 
-            for hdu in hdul:
-                if not hdu.name.startswith("PAYLOAD_"):
-                    continue
-                manifest_row = manifest_by_hdu.get(hdu.name, {})
-                payload_text = self._payload_text(hdu, manifest_row)
+            for manifest_row in [row for row in manifest if isinstance(row, dict)]:
+                hdu_name = manifest_row.get("hdu_name")
+                payload_hdu = hdu_by_name.get(hdu_name)
+                payload_text = self._payload_text(payload_hdu, manifest_row) if payload_hdu is not None else ""
                 ocr_text = ocr_by_object.get(manifest_row.get("id"), {}).get("extracted_text", "")
-                searchable = "\n".join(
-                    [
-                        str(manifest_row.get("filename", "")),
-                        str(manifest_row.get("object_type", "")),
-                        str(manifest_row.get("source_system", "")),
-                        str(manifest_row.get("metadata", {})),
-                        payload_text,
-                        ocr_text,
-                    ]
-                )
+                searchable = self._build_searchable_text(manifest_row, payload_text, ocr_text)
                 if normalised_query in searchable.lower():
                     results.append(
                         {
@@ -113,7 +96,7 @@ class FitsContainerReader:
                             "entity_display_name": entity.display_name,
                             "container_version_id": str(version.id),
                             "evidence_object_id": manifest_row.get("id"),
-                            "hdu_name": hdu.name,
+                            "hdu_name": hdu_name,
                             "filename": manifest_row.get("filename"),
                             "object_type": manifest_row.get("object_type"),
                             "source_system": manifest_row.get("source_system"),
@@ -129,6 +112,63 @@ class FitsContainerReader:
             "entity_id": str(entity.id),
             "entity_external_id": entity.external_id,
             "container_version_id": str(version.id),
+            "result_count": len(results),
+            "results": results,
+        }
+
+    def index_search(self, query: str, entity_id_or_external_id: str | None = None, limit: int = 50) -> dict[str, Any]:
+        normalised_query = query.strip().lower()
+        if not normalised_query:
+            return {"query": query, "result_count": 0, "results": []}
+
+        entity: Entity | None = None
+        statement = select(FitsIndexEntry).order_by(FitsIndexEntry.created_at.desc()).limit(500)
+        if entity_id_or_external_id:
+            entity = self._get_entity(entity_id_or_external_id)
+            statement = (
+                select(FitsIndexEntry)
+                .where(FitsIndexEntry.entity_id == entity.id)
+                .order_by(FitsIndexEntry.created_at.desc())
+                .limit(500)
+            )
+
+        rows = self.db.scalars(statement).all()
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            searchable = "\n".join(
+                [
+                    row.filename or "",
+                    row.object_type or "",
+                    row.source_system or "",
+                    row.text_content or "",
+                    json.dumps(row.metadata_json or {}, default=str),
+                ]
+            )
+            if normalised_query not in searchable.lower():
+                continue
+            row_entity = entity or self.db.get(Entity, row.entity_id)
+            results.append(
+                {
+                    "entity_id": str(row.entity_id),
+                    "entity_external_id": row_entity.external_id if row_entity else None,
+                    "entity_display_name": row_entity.display_name if row_entity else None,
+                    "container_version_id": str(row.container_version_id),
+                    "evidence_object_id": row.evidence_object_id,
+                    "hdu_name": row.hdu_name,
+                    "filename": row.filename,
+                    "object_type": row.object_type,
+                    "source_system": row.source_system,
+                    "sha256": row.sha256,
+                    "snippet": self._snippet(searchable, normalised_query),
+                }
+            )
+            if len(results) >= limit:
+                break
+
+        return {
+            "query": query,
+            "entity_id": str(entity.id) if entity else None,
+            "entity_external_id": entity.external_id if entity else None,
             "result_count": len(results),
             "results": results,
         }
@@ -179,29 +219,20 @@ class FitsContainerReader:
         with fits.open(io.BytesIO(data), checksum=True) as hdul:
             manifest = self._try_read_json_hdu(hdul, "MANIFEST") or []
             ocr_rows = self._try_read_json_hdu(hdul, "OCR_TEXT") or []
-            manifest_by_hdu = {row.get("hdu_name"): row for row in manifest if isinstance(row, dict)}
             ocr_by_object = {row.get("object_id"): row for row in ocr_rows if isinstance(row, dict)}
-            for hdu in hdul:
-                if not hdu.name.startswith("PAYLOAD_"):
-                    continue
-                manifest_row = manifest_by_hdu.get(hdu.name, {})
-                payload_text = self._payload_text(hdu, manifest_row)
+            hdu_by_name = {hdu.name: hdu for hdu in hdul}
+            for manifest_row in [row for row in manifest if isinstance(row, dict)]:
+                hdu_name = manifest_row.get("hdu_name")
+                payload_hdu = hdu_by_name.get(hdu_name)
+                payload_text = self._payload_text(payload_hdu, manifest_row) if payload_hdu is not None else ""
                 ocr_text = ocr_by_object.get(manifest_row.get("id"), {}).get("extracted_text", "")
-                text_content = "\n".join(
-                    [
-                        str(manifest_row.get("filename", "")),
-                        str(manifest_row.get("object_type", "")),
-                        str(manifest_row.get("source_system", "")),
-                        payload_text,
-                        ocr_text,
-                    ]
-                ).strip()
+                text_content = self._build_searchable_text(manifest_row, payload_text, ocr_text)
                 self.db.add(
                     FitsIndexEntry(
                         entity_id=entity.id,
                         container_version_id=version.id,
                         evidence_object_id=manifest_row.get("id"),
-                        hdu_name=hdu.name,
+                        hdu_name=str(hdu_name or ""),
                         filename=manifest_row.get("filename"),
                         object_type=manifest_row.get("object_type"),
                         source_system=manifest_row.get("source_system"),
@@ -212,6 +243,28 @@ class FitsContainerReader:
                 )
                 count += 1
         return count
+
+    def _empty_search_result(self, query: str, entity: Entity, version: EntityContainerVersion) -> dict[str, Any]:
+        return {
+            "query": query,
+            "entity_id": str(entity.id),
+            "entity_external_id": entity.external_id,
+            "container_version_id": str(version.id),
+            "result_count": 0,
+            "results": [],
+        }
+
+    def _build_searchable_text(self, manifest_row: dict[str, Any], payload_text: str, ocr_text: str) -> str:
+        return "\n".join(
+            [
+                str(manifest_row.get("filename", "")),
+                str(manifest_row.get("object_type", "")),
+                str(manifest_row.get("source_system", "")),
+                json.dumps(manifest_row.get("metadata", {}), default=str),
+                payload_text or "",
+                ocr_text or "",
+            ]
+        ).strip()
 
     def _get_entity(self, entity_id_or_external_id: str) -> Entity:
         try:
@@ -246,9 +299,10 @@ class FitsContainerReader:
         return self.storage.get_bytes(parsed.bucket, parsed.key)
 
     def _try_read_json_hdu(self, hdul: fits.HDUList, name: str) -> Any:
-        if name not in [hdu.name for hdu in hdul]:
+        hdu_by_name = {hdu.name: hdu for hdu in hdul}
+        if name not in hdu_by_name:
             return None
-        raw = self._hdu_bytes(hdul[name])
+        raw = self._hdu_bytes(hdu_by_name[name])
         return json.loads(raw.decode("utf-8"))
 
     def _payload_text(self, hdu: fits.ImageHDU, manifest_row: dict[str, Any]) -> str:
