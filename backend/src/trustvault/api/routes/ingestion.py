@@ -65,9 +65,11 @@ class SourceFolderIngestionResponse(BaseModel):
     evidence_object_count: int
     source_system_count: int
     skipped_count: int
+    duplicate_count: int = 0
     evidence_object_ids: list[str]
     container: dict[str, Any] | None = None
     index: dict[str, Any] | None = None
+    message: str | None = None
 
 
 def _post_ingestion_rebuilds(
@@ -79,6 +81,19 @@ def _post_ingestion_rebuilds(
     container = EntityContainerBuilder(db).rebuild(entity_external_id) if rebuild_container else None
     index = FitsContainerReader(db).rebuild_index_from_current_fits(entity_external_id) if rebuild_index else None
     return container, index
+
+
+def _post_source_folder_rebuilds(
+    db: Session,
+    entity_external_id: str,
+    inserted_count: int,
+    rebuild_container: bool,
+    rebuild_index: bool,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str | None]:
+    if inserted_count <= 0:
+        return None, None, "No new evidence was ingested; source folder upload was duplicate-only. Current FITS archive was left unchanged."
+    container, index = _post_ingestion_rebuilds(db, entity_external_id, rebuild_container, rebuild_index)
+    return container, index, None
 
 
 @router.post("/text", response_model=IngestionResponse)
@@ -169,9 +184,10 @@ def ingest_source_folder_base64(
         zip_bytes,
         source_system_default=request.source_system_default,
     )
-    container, index = _post_ingestion_rebuilds(
+    container, index, message = _post_source_folder_rebuilds(
         db,
         result.entity_external_id,
+        result.evidence_object_count,
         request.rebuild_container,
         request.rebuild_index,
     )
@@ -183,12 +199,13 @@ def ingest_source_folder_base64(
             "mode": "source_folder_zip_base64",
             "entity_external_id": result.entity_external_id,
             "evidence_object_count": result.evidence_object_count,
+            "duplicate_count": result.duplicate_count,
             "source_system_count": result.source_system_count,
             "container_rebuilt": container is not None,
             "index_rebuilt": index is not None,
         },
     )
-    return SourceFolderIngestionResponse(**result.__dict__, container=container, index=index)
+    return SourceFolderIngestionResponse(**result.__dict__, container=container, index=index, message=message)
 
 
 @router.post("/source-folder/upload", response_model=SourceFolderIngestionResponse)
@@ -201,9 +218,10 @@ async def ingest_source_folder_upload(
 ) -> SourceFolderIngestionResponse:
     zip_bytes = await file.read()
     result = SourceFolderIngestionService(db).ingest_zip_bytes(zip_bytes)
-    container, index = _post_ingestion_rebuilds(
+    container, index, message = _post_source_folder_rebuilds(
         db,
         result.entity_external_id,
+        result.evidence_object_count,
         rebuild_container,
         rebuild_index,
     )
@@ -216,9 +234,10 @@ async def ingest_source_folder_upload(
             "filename": file.filename,
             "entity_external_id": result.entity_external_id,
             "evidence_object_count": result.evidence_object_count,
+            "duplicate_count": result.duplicate_count,
             "source_system_count": result.source_system_count,
             "container_rebuilt": container is not None,
             "index_rebuilt": index is not None,
         },
     )
-    return SourceFolderIngestionResponse(**result.__dict__, container=container, index=index)
+    return SourceFolderIngestionResponse(**result.__dict__, container=container, index=index, message=message)
