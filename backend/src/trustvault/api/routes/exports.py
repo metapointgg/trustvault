@@ -2,10 +2,11 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from trustvault.audit.events import EVIDENCE_PACK_EXPORTED
+from trustvault.audit.events import EVIDENCE_PACK_EXPORTED, EVIDENCE_PREVIEWED
 from trustvault.audit.logger import AuditLogger
 from trustvault.api.dependencies import get_audit_logger, get_database
 from trustvault.core.export_pack import RegulatorEvidencePackExporter
@@ -29,6 +30,12 @@ class ExportPackResponse(BaseModel):
     created_by_job_id: str | None
     created_by_user_id: str | None
     created_at: datetime
+
+
+class ExportPackContentsResponse(BaseModel):
+    export_pack: dict[str, Any]
+    entry_count: int
+    entries: list[dict[str, Any]]
 
 
 class CreateExportPackRequest(BaseModel):
@@ -80,3 +87,72 @@ def list_entity_packs(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return [ExportPackResponse(**pack) for pack in packs]
+
+
+@router.get("/packs/{export_pack_id}", response_model=ExportPackResponse)
+def get_export_pack(
+    export_pack_id: str,
+    db: Session = Depends(get_database),
+) -> ExportPackResponse:
+    try:
+        pack = RegulatorEvidencePackExporter(db).get_pack(export_pack_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return ExportPackResponse(**pack)
+
+
+@router.get("/packs/{export_pack_id}/contents", response_model=ExportPackContentsResponse)
+def inspect_export_pack_contents(
+    export_pack_id: str,
+    db: Session = Depends(get_database),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+) -> ExportPackContentsResponse:
+    try:
+        result = RegulatorEvidencePackExporter(db).inspect_pack_contents(export_pack_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    audit_logger.log(
+        EVIDENCE_PREVIEWED,
+        entity_ids=[result["export_pack"]["entity_id"]],
+        export_path=result["export_pack"]["storage_uri"],
+        metadata={
+            "operation": "inspect_export_pack_contents",
+            "export_pack_id": export_pack_id,
+            "entry_count": result["entry_count"],
+        },
+    )
+    return ExportPackContentsResponse(**result)
+
+
+@router.get("/packs/{export_pack_id}/download")
+def download_export_pack(
+    export_pack_id: str,
+    db: Session = Depends(get_database),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+) -> Response:
+    try:
+        pack, data = RegulatorEvidencePackExporter(db).get_pack_bytes(export_pack_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    audit_logger.log(
+        EVIDENCE_PREVIEWED,
+        entity_ids=[pack["entity_id"]],
+        export_path=pack["storage_uri"],
+        metadata={
+            "operation": "download_export_pack",
+            "export_pack_id": export_pack_id,
+            "sha256": pack["sha256"],
+            "size_bytes": pack["size_bytes"],
+        },
+    )
+    filename = f"trustvault-regulator-pack-{pack['entity_external_id']}-{export_pack_id}.zip"
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-TrustVault-SHA256": pack["sha256"],
+        },
+    )
