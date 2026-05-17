@@ -6,10 +6,11 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from trustvault.audit.events import CONTAINER_REBUILT
+from trustvault.audit.events import CONTAINER_REBUILT, INTEGRITY_VALIDATION_RUN
 from trustvault.audit.logger import AuditLogger
 from trustvault.api.dependencies import get_audit_logger, get_database
 from trustvault.core.container_builder import EntityContainerBuilder
+from trustvault.core.integrity import ContainerIntegrityValidator
 from trustvault.db.models import Entity, EntityContainerVersion
 
 router = APIRouter(prefix="/api/v1/containers", tags=["containers"])
@@ -45,6 +46,28 @@ class RebuildContainerResponse(BaseModel):
     sha256: str
     size_bytes: int
     evidence_object_count: int
+    container_format: str | None = None
+
+
+class ContainerValidationResponse(BaseModel):
+    container_version_id: str
+    entity_id: str
+    version_number: int
+    status: str
+    storage_uri: str
+    expected_container_sha256: str
+    actual_container_sha256: str
+    container_hash_matches: bool
+    size_bytes: int
+    expected_size_bytes: int
+    size_matches: bool
+    is_fits_uri: bool
+    fits_opened: bool
+    missing_required_hdus: list[str]
+    payload_results: list[dict[str, Any]]
+    overall_status: str
+    errors: list[str]
+    hdu_names: list[str] | None = None
 
 
 def serialise_version(version: EntityContainerVersion) -> ContainerVersionResponse:
@@ -107,3 +130,29 @@ def rebuild_container(
         },
     )
     return RebuildContainerResponse(**result)
+
+
+@router.post("/versions/{container_version_id}/validate", response_model=ContainerValidationResponse)
+def validate_container_version(
+    container_version_id: str,
+    db: Session = Depends(get_database),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+) -> ContainerValidationResponse:
+    try:
+        result = ContainerIntegrityValidator(db).validate_container_version(container_version_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    audit_logger.log(
+        INTEGRITY_VALIDATION_RUN,
+        status="success" if result["overall_status"] == "valid" else "error",
+        entity_ids=[result["entity_id"]],
+        metadata={
+            "container_version_id": container_version_id,
+            "storage_uri": result["storage_uri"],
+            "overall_status": result["overall_status"],
+            "container_hash_matches": result["container_hash_matches"],
+            "payload_count": len(result["payload_results"]),
+        },
+    )
+    return ContainerValidationResponse(**result)
