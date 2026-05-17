@@ -61,6 +61,21 @@ class TrustVaultApiClient {
     return response.data ?? <String, dynamic>{};
   }
 
+  Future<Map<String, dynamic>> searchFitsIndex({
+    required String query,
+    String? entityExternalId,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/fits/index/search',
+      data: <String, dynamic>{
+        'query': query,
+        'limit': 50,
+        if (entityExternalId != null && entityExternalId.isNotEmpty) 'entity_external_id': entityExternalId,
+      },
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
   Future<Map<String, dynamic>> rebuildFitsIndex({String? entityExternalId}) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/fits/index/rebuild',
