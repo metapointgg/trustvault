@@ -13,17 +13,17 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
   final TrustVaultApiClient _apiClient = TrustVaultApiClient();
   late Future<List<dynamic>> _future;
 
-  final TextEditingController _externalIdController = TextEditingController(text: 'northshore-001');
-  final TextEditingController _displayNameController = TextEditingController(text: 'Northshore Trust - Client 001');
+  final TextEditingController _externalIdController = TextEditingController(text: 'CUST-000001');
+  final TextEditingController _displayNameController = TextEditingController(text: 'Oliver Hartley');
   final TextEditingController _filenameController = TextEditingController(text: 'proof-of-address.txt');
   final TextEditingController _textController = TextEditingController(
-    text: 'Proof of address received and validated for Northshore Trust Client 001.',
+    text: 'Proof of address received and validated for Oliver Hartley.',
   );
 
   @override
   void initState() {
     super.initState();
-    _future = _apiClient.getEntities();
+    _future = _apiClient.getCustomers();
   }
 
   @override
@@ -44,7 +44,7 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
       filename: _filenameController.text.trim(),
       text: _textController.text,
     );
-    setState(() => _future = _apiClient.getEntities());
+    setState(() => _future = _apiClient.getCustomers());
   }
 
   Future<void> _queueIngestion() async {
@@ -64,72 +64,16 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
     final result = await _apiClient.rebuildEntityContainer('${entity['external_id']}');
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Built container v${result['version_number']} for ${entity['external_id']}')),
+      SnackBar(content: Text('Built FITS archive v${result['version_number']} for ${entity['external_id']}')),
     );
+    setState(() => _future = _apiClient.getCustomers());
   }
 
   Future<void> _queueContainerRebuild(Map<String, dynamic> entity) async {
     await _apiClient.queueEntityContainerRebuild('${entity['external_id']}');
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Queued container rebuild for ${entity['external_id']}')),
-    );
-  }
-
-  Future<void> _createRegulatorPack(Map<String, dynamic> entity) async {
-    final result = await _apiClient.createRegulatorPack('${entity['external_id']}');
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Created regulator pack ${result['id']}')),
-    );
-  }
-
-  Future<void> _queueRegulatorPack(Map<String, dynamic> entity) async {
-    await _apiClient.queueRegulatorPackExport('${entity['external_id']}');
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Queued regulator pack export for ${entity['external_id']}')),
-    );
-  }
-
-  Future<void> _showExportPacks(Map<String, dynamic> entity) async {
-    final packs = await _apiClient.getEntityExportPacks('${entity['external_id']}');
-    if (!mounted) return;
-
-    showDialog<void>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('${entity['display_name']} export packs'),
-          content: SizedBox(
-            width: 880,
-            child: packs.isEmpty
-                ? const Text('No export packs have been generated yet.')
-                : ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: packs.length,
-                    separatorBuilder: (_, __) => const Divider(),
-                    itemBuilder: (context, index) {
-                      final pack = packs[index] as Map<String, dynamic>;
-                      return ListTile(
-                        leading: const Icon(Icons.inventory_2_outlined),
-                        title: Text('${pack['export_type']} - ${pack['status']}'),
-                        subtitle: SelectableText(
-                          'Pack ID: ${pack['id']}\n'
-                          'URI: ${pack['storage_uri']}\n'
-                          'SHA-256: ${pack['sha256']}\n'
-                          'Evidence objects: ${pack['evidence_object_count']}\n'
-                          'Size: ${pack['size_bytes']} bytes',
-                        ),
-                      );
-                    },
-                  ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close')),
-          ],
-        );
-      },
+      SnackBar(content: Text('Queued FITS archive rebuild for ${entity['external_id']}')),
     );
   }
 
@@ -211,7 +155,7 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
         return AlertDialog(
           title: Text('${entity['display_name']} evidence'),
           content: SizedBox(
-            width: 700,
+            width: 760,
             child: evidenceObjects.isEmpty
                 ? const Text('No evidence objects found.')
                 : ListView.separated(
@@ -223,7 +167,7 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
                       return ListTile(
                         leading: const Icon(Icons.description_outlined),
                         title: Text('${evidence['object_type']} from ${evidence['source_system']}'),
-                        subtitle: Text(
+                        subtitle: SelectableText(
                           'URI: ${evidence['storage_uri']}\nSHA-256: ${evidence['sha256']}',
                         ),
                       );
@@ -246,19 +190,20 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text('${entity['display_name']} containers'),
+          title: Text('${entity['display_name']} FITS archive versions'),
           content: SizedBox(
-            width: 880,
+            width: 920,
             child: versions.isEmpty
-                ? const Text('No container versions found.')
+                ? const Text('No FITS archive versions found.')
                 : ListView.separated(
                     shrinkWrap: true,
                     itemCount: versions.length,
                     separatorBuilder: (_, __) => const Divider(),
                     itemBuilder: (context, index) {
                       final version = versions[index] as Map<String, dynamic>;
+                      final isFits = '${version['storage_uri']}'.toLowerCase().endsWith('.fits');
                       return ListTile(
-                        leading: const Icon(Icons.archive_outlined),
+                        leading: Icon(isFits ? Icons.data_object_outlined : Icons.warning_amber_outlined),
                         title: Text('Version ${version['version_number']} - ${version['status']}'),
                         subtitle: SelectableText(
                           'URI: ${version['storage_uri']}\n'
@@ -266,10 +211,15 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
                           'Evidence objects: ${version['evidence_object_count']}\n'
                           'Size: ${version['size_bytes']} bytes',
                         ),
-                        trailing: TextButton.icon(
-                          onPressed: () => _validateContainerVersion(version),
-                          icon: const Icon(Icons.verified_outlined),
-                          label: const Text('Validate'),
+                        trailing: Wrap(
+                          spacing: 8,
+                          children: [
+                            TextButton.icon(
+                              onPressed: isFits ? () => _validateContainerVersion(version) : null,
+                              icon: const Icon(Icons.verified_outlined),
+                              label: const Text('Validate'),
+                            ),
+                          ],
                         ),
                       );
                     },
@@ -300,15 +250,17 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text('Ingest evidence', style: Theme.of(context).textTheme.titleLarge),
+                    const SizedBox(height: 8),
+                    const Text('Manual text ingestion rebuilds the affected customer FITS archive and index.'),
                     const SizedBox(height: 16),
                     TextField(
                       controller: _externalIdController,
-                      decoration: const InputDecoration(labelText: 'Entity external ID'),
+                      decoration: const InputDecoration(labelText: 'Customer external ID'),
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: _displayNameController,
-                      decoration: const InputDecoration(labelText: 'Entity display name'),
+                      decoration: const InputDecoration(labelText: 'Customer display name'),
                     ),
                     const SizedBox(height: 12),
                     TextField(
@@ -362,14 +314,14 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Entities', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
+                          Text('Customers', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
                           const SizedBox(height: 8),
-                          const Text('Customer/entity records created from ingested evidence.'),
+                          const Text('Customer records and their current FITS evidence archive lifecycle.'),
                         ],
                       ),
                     ),
                     OutlinedButton.icon(
-                      onPressed: () => setState(() => _future = _apiClient.getEntities()),
+                      onPressed: () => setState(() => _future = _apiClient.getCustomers()),
                       icon: const Icon(Icons.refresh),
                       label: const Text('Refresh'),
                     ),
@@ -384,17 +336,18 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
                         return const Center(child: CircularProgressIndicator());
                       }
                       if (snapshot.hasError) {
-                        return Center(child: Text('Unable to load entities: ${snapshot.error}'));
+                        return Center(child: Text('Unable to load customers: ${snapshot.error}'));
                       }
                       final entities = snapshot.data ?? <dynamic>[];
                       if (entities.isEmpty) {
-                        return const Center(child: Text('No entities have been created yet.'));
+                        return const Center(child: Text('No customers have been created yet.'));
                       }
                       return ListView.separated(
                         itemCount: entities.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 12),
                         itemBuilder: (context, index) {
                           final entity = entities[index] as Map<String, dynamic>;
+                          final hasFits = entity['has_current_fits_container'] == true;
                           return Card(
                             child: Padding(
                               padding: const EdgeInsets.all(8),
@@ -402,9 +355,13 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   ListTile(
-                                    leading: const Icon(Icons.business_outlined),
+                                    leading: Icon(hasFits ? Icons.verified_user_outlined : Icons.business_outlined),
                                     title: Text('${entity['display_name']}'),
-                                    subtitle: Text('External ID: ${entity['external_id']}\nStatus: ${entity['status']}'),
+                                    subtitle: Text(
+                                      'External ID: ${entity['external_id']}\n'
+                                      'Evidence objects: ${entity['evidence_object_count'] ?? '-'}\n'
+                                      'Current FITS: ${hasFits ? 'Yes' : 'No'}',
+                                    ),
                                   ),
                                   Padding(
                                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -419,8 +376,8 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
                                         ),
                                         TextButton.icon(
                                           onPressed: () => _rebuildContainer(entity),
-                                          icon: const Icon(Icons.archive_outlined),
-                                          label: const Text('Rebuild container'),
+                                          icon: const Icon(Icons.data_object_outlined),
+                                          label: const Text('Rebuild FITS'),
                                         ),
                                         TextButton.icon(
                                           onPressed: () => _queueContainerRebuild(entity),
@@ -430,22 +387,7 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
                                         TextButton.icon(
                                           onPressed: () => _showContainerVersions(entity),
                                           icon: const Icon(Icons.history),
-                                          label: const Text('Container versions'),
-                                        ),
-                                        TextButton.icon(
-                                          onPressed: () => _createRegulatorPack(entity),
-                                          icon: const Icon(Icons.inventory_2_outlined),
-                                          label: const Text('Export pack'),
-                                        ),
-                                        TextButton.icon(
-                                          onPressed: () => _queueRegulatorPack(entity),
-                                          icon: const Icon(Icons.outbox_outlined),
-                                          label: const Text('Queue export'),
-                                        ),
-                                        TextButton.icon(
-                                          onPressed: () => _showExportPacks(entity),
-                                          icon: const Icon(Icons.folder_zip_outlined),
-                                          label: const Text('Export packs'),
+                                          label: const Text('FITS versions'),
                                         ),
                                       ],
                                     ),
