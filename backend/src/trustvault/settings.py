@@ -35,6 +35,8 @@ class Settings(BaseSettings):
 
     ai_provider: str = "none"
     lm_studio_base_url: str = "http://localhost:1234"
+    lm_studio_model: str = "qwen/qwen3-vl-4b"
+    lm_studio_query_model: str = "qwen/qwen3-vl-4b"
     azure_openai_endpoint: str | None = None
     azure_openai_deployment: str | None = None
     bedrock_model_id: str | None = None
