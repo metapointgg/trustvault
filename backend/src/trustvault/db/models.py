@@ -52,6 +52,24 @@ class EntityContainerVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ExportPack(Base):
+    __tablename__ = "export_packs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    container_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    export_type: Mapped[str] = mapped_column(String(100), nullable=False, default="regulator_evidence_pack")
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="created")
+    storage_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    evidence_object_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    manifest_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_by_job_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_by_user_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class FitsIndexEntry(Base):
     __tablename__ = "fits_index_entries"
 
