@@ -35,6 +35,23 @@ class EvidenceObject(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class EntityContainerVersion(Base):
+    __tablename__ = "entity_container_versions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="current")
+    storage_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    evidence_object_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    manifest_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    hash_report_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_by_job_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Job(Base):
     __tablename__ = "jobs"
 
