@@ -37,11 +37,18 @@ class FitsSearchRequest(BaseModel):
 
 class FitsSearchResponse(BaseModel):
     query: str
-    entity_id: str
-    entity_external_id: str
-    container_version_id: str
+    entity_id: str | None = None
+    entity_external_id: str | None = None
+    container_version_id: str | None = None
     result_count: int
     results: list[dict[str, Any]]
+
+
+class FitsIndexSearchRequest(BaseModel):
+    query: str = Field(min_length=1)
+    entity_id: str | None = None
+    entity_external_id: str | None = None
+    limit: int = 50
 
 
 class FitsIndexRebuildRequest(BaseModel):
@@ -102,6 +109,33 @@ def search_entity_fits(
         metadata={
             "container_version_id": result["container_version_id"],
             "entity_external_id": result["entity_external_id"],
+        },
+    )
+    return FitsSearchResponse(**result)
+
+
+@router.post("/index/search", response_model=FitsSearchResponse)
+def search_fits_index(
+    request: FitsIndexSearchRequest,
+    db: Session = Depends(get_database),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+) -> FitsSearchResponse:
+    entity_reference = request.entity_id or request.entity_external_id
+    try:
+        result = FitsContainerReader(db).index_search(request.query, entity_reference, request.limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    audit_logger.log(
+        SEARCH_EXECUTED,
+        raw_query=request.query,
+        result_count=result["result_count"],
+        search_source="fits_index",
+        entity_ids=[result["entity_id"]] if result.get("entity_id") else [],
+        object_ids=[item.get("evidence_object_id") for item in result["results"]],
+        metadata={
+            "entity_external_id": result.get("entity_external_id"),
+            "entity_reference": entity_reference,
         },
     )
     return FitsSearchResponse(**result)
