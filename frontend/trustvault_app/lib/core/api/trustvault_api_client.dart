@@ -30,6 +30,41 @@ class TrustVaultApiClient {
     return response.data ?? <String, dynamic>{};
   }
 
+  Future<List<dynamic>> getEntities() async {
+    final response = await _dio.get<List<dynamic>>('/api/v1/entities');
+    return response.data ?? <dynamic>[];
+  }
+
+  Future<List<dynamic>> getEntityEvidence(String entityId) async {
+    final response = await _dio.get<List<dynamic>>('/api/v1/entities/$entityId/evidence');
+    return response.data ?? <dynamic>[];
+  }
+
+  Future<Map<String, dynamic>> ingestTextEvidence({
+    required String entityExternalId,
+    required String entityDisplayName,
+    required String objectType,
+    required String sourceSystem,
+    required String filename,
+    required String text,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/ingestion/text',
+      data: <String, dynamic>{
+        'entity_external_id': entityExternalId,
+        'entity_display_name': entityDisplayName,
+        'object_type': objectType,
+        'source_system': sourceSystem,
+        'filename': filename,
+        'text': text,
+        'metadata': <String, dynamic>{
+          'created_from': 'flutter_app',
+        },
+      },
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
   Future<List<dynamic>> getJobs() async {
     final response = await _dio.get<List<dynamic>>('/api/v1/jobs');
     return response.data ?? <dynamic>[];
@@ -42,6 +77,34 @@ class TrustVaultApiClient {
         'job_type': jobType,
         'payload': <String, dynamic>{
           'source': 'flutter_app',
+        },
+        'created_by_user_id': 'local-user',
+      },
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> createTextIngestionJob({
+    required String entityExternalId,
+    required String entityDisplayName,
+    required String filename,
+    required String text,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/jobs',
+      data: <String, dynamic>{
+        'job_type': 'ingest_text_evidence',
+        'payload': <String, dynamic>{
+          'entity_external_id': entityExternalId,
+          'entity_display_name': entityDisplayName,
+          'object_type': 'document',
+          'source_system': 'flutter_queued_ingestion',
+          'filename': filename,
+          'text': text,
+          'metadata': <String, dynamic>{
+            'created_from': 'flutter_app',
+            'ingestion_mode': 'queued',
+          },
         },
         'created_by_user_id': 'local-user',
       },
