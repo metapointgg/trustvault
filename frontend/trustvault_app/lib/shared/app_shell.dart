@@ -41,6 +41,13 @@ class _AppShellState extends State<AppShell> {
   void initState() {
     super.initState();
     _customersFuture = _apiClient.getCustomers();
+    SelectedCustomerController.refreshToken.addListener(_refreshCustomers);
+  }
+
+  @override
+  void dispose() {
+    SelectedCustomerController.refreshToken.removeListener(_refreshCustomers);
+    super.dispose();
   }
 
   void _refreshCustomers() {
