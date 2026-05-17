@@ -40,6 +40,22 @@ class TrustVaultApiClient {
     return response.data ?? <dynamic>[];
   }
 
+  Future<Map<String, dynamic>> getEvidencePreview(String evidenceObjectId) async {
+    final response = await _dio.get<Map<String, dynamic>>('/api/v1/evidence/$evidenceObjectId/preview');
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> searchEvidence(String query) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/evidence/search',
+      data: <String, dynamic>{
+        'query': query,
+        'limit': 50,
+      },
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
   Future<Map<String, dynamic>> ingestTextEvidence({
     required String entityExternalId,
     required String entityDisplayName,
