@@ -10,6 +10,7 @@ from trustvault.audit.events import CONTAINER_REBUILT, INTEGRITY_VALIDATION_RUN
 from trustvault.audit.logger import AuditLogger
 from trustvault.api.dependencies import get_audit_logger, get_database
 from trustvault.core.container_builder import EntityContainerBuilder
+from trustvault.core.container_normalisation import ContainerVersionNormaliser
 from trustvault.core.integrity import ContainerIntegrityValidator
 from trustvault.db.models import Entity, EntityContainerVersion
 
@@ -68,6 +69,13 @@ class ContainerValidationResponse(BaseModel):
     overall_status: str
     errors: list[str]
     hdu_names: list[str] | None = None
+
+
+class ContainerNormalisationResponse(BaseModel):
+    updated_count: int
+    skipped_count: int
+    updated: list[dict[str, Any]]
+    skipped: list[dict[str, Any]]
 
 
 def serialise_version(version: EntityContainerVersion) -> ContainerVersionResponse:
@@ -156,3 +164,20 @@ def validate_container_version(
         },
     )
     return ContainerValidationResponse(**result)
+
+
+@router.post("/admin/normalise-legacy-placeholders", response_model=ContainerNormalisationResponse)
+def normalise_legacy_placeholders(
+    db: Session = Depends(get_database),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+) -> ContainerNormalisationResponse:
+    result = ContainerVersionNormaliser(db).normalise_legacy_placeholders()
+    audit_logger.log(
+        INTEGRITY_VALIDATION_RUN,
+        metadata={
+            "operation": "normalise_legacy_placeholder_containers",
+            "updated_count": result["updated_count"],
+            "skipped_count": result["skipped_count"],
+        },
+    )
+    return ContainerNormalisationResponse(**result)
