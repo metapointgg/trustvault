@@ -1,3 +1,4 @@
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,7 +18,11 @@ router = APIRouter(prefix="/api/v1/export", tags=["export"])
 
 
 def _container(db: Session, container_version_id: str) -> EntityContainerVersion:
-    container = db.get(EntityContainerVersion, container_version_id)
+    try:
+        parsed_id = uuid.UUID(container_version_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid container version id") from exc
+    container = db.get(EntityContainerVersion, parsed_id)
     if container is None:
         raise HTTPException(status_code=404, detail="Container version not found")
     if not container.storage_uri.lower().endswith(".fits"):
@@ -49,6 +54,7 @@ def download_fits_archive(
             "container_version_id": str(container.id),
             "sha256": container.sha256,
             "size_bytes": container.size_bytes,
+            "source_of_truth": "FITS archive",
         },
     )
     filename = container.storage_uri.split("/")[-1]
@@ -89,3 +95,13 @@ def inspect_fits_archive(
         metadata={"operation": "inspect_fits_archive", "container_version_id": container_version_id},
     )
     return result
+
+
+@router.get("/status")
+def export_status() -> dict[str, Any]:
+    return {
+        "export_model": "fits_native",
+        "primary_export": "current_or_versioned_FITS_archive",
+        "source_of_truth": "FITS container",
+        "secondary_report_packs": "not_enabled_in_this_build",
+    }
