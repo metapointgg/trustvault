@@ -86,20 +86,6 @@ class TrustVaultApiClient {
     return response.data ?? <String, dynamic>{};
   }
 
-  Future<Map<String, dynamic>> queueFitsIndexRebuild({String? entityExternalId}) async {
-    final response = await _dio.post<Map<String, dynamic>>(
-      '/api/v1/jobs',
-      data: <String, dynamic>{
-        'job_type': 'rebuild_fits_index',
-        'payload': <String, dynamic>{
-          if (entityExternalId != null) 'entity_external_id': entityExternalId,
-        },
-        'created_by_user_id': 'local-user',
-      },
-    );
-    return response.data ?? <String, dynamic>{};
-  }
-
   Future<Map<String, dynamic>> rebuildEntityContainer(String entityExternalId) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/containers/rebuild',
@@ -129,6 +115,37 @@ class TrustVaultApiClient {
       },
     );
     return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> createRegulatorPack(String entityExternalId) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/exports/regulator-pack',
+      data: <String, dynamic>{
+        'entity_external_id': entityExternalId,
+        'created_by_user_id': 'local-user',
+      },
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> queueRegulatorPackExport(String entityExternalId) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/jobs',
+      data: <String, dynamic>{
+        'job_type': 'export_regulator_pack',
+        'payload': <String, dynamic>{
+          'entity_external_id': entityExternalId,
+          'created_by_user_id': 'local-user',
+        },
+        'created_by_user_id': 'local-user',
+      },
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<List<dynamic>> getEntityExportPacks(String entityId) async {
+    final response = await _dio.get<List<dynamic>>('/api/v1/exports/entities/$entityId/packs');
+    return response.data ?? <dynamic>[];
   }
 
   Future<Map<String, dynamic>> getEvidencePreview(String evidenceObjectId) async {
