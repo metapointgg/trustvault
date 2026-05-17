@@ -35,6 +35,16 @@ class FitsSearchRequest(BaseModel):
     limit: int = 50
 
 
+class FitsSearchDebugResponse(BaseModel):
+    query: str
+    normalised_query: str
+    entity_id: str
+    entity_external_id: str
+    container_version_id: str
+    row_count: int
+    rows: list[dict[str, Any]]
+
+
 class FitsSearchResponse(BaseModel):
     query: str
     entity_id: str | None = None
@@ -112,6 +122,19 @@ def search_entity_fits(
         },
     )
     return FitsSearchResponse(**result)
+
+
+@router.post("/entities/{entity_id}/search-debug", response_model=FitsSearchDebugResponse)
+def debug_entity_fits_search(
+    entity_id: str,
+    request: FitsSearchRequest,
+    db: Session = Depends(get_database),
+) -> FitsSearchDebugResponse:
+    try:
+        result = FitsContainerReader(db).debug_search_text(entity_id, request.query)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FitsSearchDebugResponse(**result)
 
 
 @router.post("/index/search", response_model=FitsSearchResponse)
