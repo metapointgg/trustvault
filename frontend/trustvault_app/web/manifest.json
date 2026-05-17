@@ -1,0 +1,11 @@
+{
+  "name": "TrustVault",
+  "short_name": "TrustVault",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#F8FAFC",
+  "theme_color": "#164E63",
+  "description": "Secure evidence assurance for regulated customer records",
+  "orientation": "landscape-primary",
+  "prefer_related_applications": false
+}
