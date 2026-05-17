@@ -25,25 +25,15 @@ class SourceFolderIngestionResult:
     source_system_count: int
     skipped_count: int
     evidence_object_ids: list[str]
+    duplicate_count: int = 0
 
 
 class SourceFolderIngestionService:
     """Ingests a customer evidence source folder ZIP.
 
-    Expected shape mirrors the original Entity Evidence Container POC fixtures and the
-    production-style sample folder:
-
-    CUST-000001/
-      metadata/customer.json
-      metadata/audit_events.json
-      documents/*.pdf
-      documents/*.search.txt
-      statements/*.pdf
-      statements/*.search.txt
-      emails/*.eml
-      scans/*.jpg
-      extracts/*.csv
-      large_evidence/*.bin
+    Ingestion is idempotent by source path and SHA-256 for a given entity. Re-running
+    the same source folder will skip unchanged evidence rather than appending duplicate
+    records and creating a larger FITS archive.
     """
 
     IGNORED_PREFIXES = ("__MACOSX/",)
@@ -61,10 +51,12 @@ class SourceFolderIngestionService:
             entity_external_id = customer.get("entity_id") or root.rstrip("/") or f"entity-{uuid.uuid4()}"
             entity_display_name = customer.get("display_name") or entity_external_id
             entity = self._get_or_create_entity(entity_external_id, entity_display_name, customer)
+            existing_source_hashes = self._existing_source_hashes(entity)
 
             search_text_by_stem = self._read_search_texts(archive, names)
             evidence_ids: list[str] = []
             skipped_count = 0
+            duplicate_count = 0
             source_systems: set[str] = set()
 
             for name in names:
@@ -77,6 +69,13 @@ class SourceFolderIngestionService:
 
                 content = archive.read(name)
                 if not content:
+                    skipped_count += 1
+                    continue
+
+                content_hash = sha256_bytes(content)
+                source_key = (relative, content_hash)
+                if source_key in existing_source_hashes:
+                    duplicate_count += 1
                     skipped_count += 1
                     continue
 
@@ -117,6 +116,7 @@ class SourceFolderIngestionService:
                 evidence = self._store_evidence(
                     entity=entity,
                     content=content,
+                    content_hash=content_hash,
                     filename=PurePosixPath(relative).name,
                     object_type=object_type,
                     source_system=source_system,
@@ -124,6 +124,7 @@ class SourceFolderIngestionService:
                     metadata=metadata,
                 )
                 evidence_ids.append(str(evidence.id))
+                existing_source_hashes.add(source_key)
 
             for source_system in sorted(source_systems):
                 self._upsert_source_system(source_system)
@@ -136,8 +137,18 @@ class SourceFolderIngestionService:
                 evidence_object_count=len(evidence_ids),
                 source_system_count=len(source_systems),
                 skipped_count=skipped_count,
+                duplicate_count=duplicate_count,
                 evidence_object_ids=evidence_ids,
             )
+
+    def _existing_source_hashes(self, entity: Entity) -> set[tuple[str, str]]:
+        rows = self.db.scalars(select(EvidenceObject).where(EvidenceObject.entity_id == entity.id)).all()
+        result: set[tuple[str, str]] = set()
+        for row in rows:
+            source_path = (row.metadata_json or {}).get("source_path")
+            if source_path and row.sha256:
+                result.add((source_path, row.sha256))
+        return result
 
     def _include_zip_entry(self, name: str) -> bool:
         if any(name.startswith(prefix) for prefix in self.IGNORED_PREFIXES):
@@ -177,8 +188,6 @@ class SourceFolderIngestionService:
         if relative.endswith(".search.txt"):
             relative = relative.removesuffix(".search.txt")
         path = PurePosixPath(relative)
-        # Match sidecars like documents/passport_scan_certified.search.txt to
-        # payloads like documents/passport_scan_certified.pdf.
         return str(path.with_suffix(""))
 
     def _object_type_from_path(self, relative: str) -> str:
@@ -259,6 +268,7 @@ class SourceFolderIngestionService:
         *,
         entity: Entity,
         content: bytes,
+        content_hash: str,
         filename: str,
         object_type: str,
         source_system: str,
@@ -279,7 +289,7 @@ class SourceFolderIngestionService:
             object_type=object_type,
             source_system=source_system,
             storage_uri=stored.uri,
-            sha256=sha256_bytes(content),
+            sha256=content_hash,
             content_type=content_type,
             metadata_json=metadata,
         )
