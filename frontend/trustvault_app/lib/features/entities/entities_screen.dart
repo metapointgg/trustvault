@@ -76,6 +76,74 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
     );
   }
 
+  Future<void> _validateContainerVersion(Map<String, dynamic> version) async {
+    final result = await _apiClient.validateContainerVersion('${version['id']}');
+    if (!mounted) return;
+
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        final payloadResults = (result['payload_results'] as List<dynamic>? ?? <dynamic>[]).cast<dynamic>();
+        final isValid = result['overall_status'] == 'valid';
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(isValid ? Icons.verified_outlined : Icons.error_outline),
+              const SizedBox(width: 8),
+              Text('Validation: ${result['overall_status']}'),
+            ],
+          ),
+          content: SizedBox(
+            width: 820,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _DetailRow(label: 'Storage URI', value: '${result['storage_uri']}'),
+                  _DetailRow(label: 'Container hash', value: '${result['container_hash_matches']}'),
+                  _DetailRow(label: 'Size matches', value: '${result['size_matches']}'),
+                  _DetailRow(label: 'FITS opened', value: '${result['fits_opened']}'),
+                  _DetailRow(label: 'Missing HDUs', value: '${result['missing_required_hdus']}'),
+                  const SizedBox(height: 12),
+                  Text('Payload validation', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  if (payloadResults.isEmpty)
+                    const Text('No payload results returned.')
+                  else
+                    ...payloadResults.map((item) {
+                      final payload = item as Map<String, dynamic>;
+                      return Card(
+                        child: ListTile(
+                          dense: true,
+                          leading: Icon(payload['valid'] == true ? Icons.check_circle_outline : Icons.error_outline),
+                          title: Text('${payload['hdu_name']} - ${payload['filename']}'),
+                          subtitle: SelectableText(
+                            'Expected: ${payload['expected_sha256']}\n'
+                            'Actual: ${payload['actual_sha256']}\n'
+                            'Header: ${payload['header_sha256']}\n'
+                            'Valid: ${payload['valid']}',
+                          ),
+                        ),
+                      );
+                    }),
+                  if ((result['errors'] as List<dynamic>? ?? <dynamic>[]).isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text('Errors', style: Theme.of(context).textTheme.titleMedium),
+                    SelectableText('${result['errors']}'),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close')),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _showEvidence(Map<String, dynamic> entity) async {
     final evidenceObjects = await _apiClient.getEntityEvidence('${entity['id']}');
     if (!mounted) return;
@@ -123,7 +191,7 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
         return AlertDialog(
           title: Text('${entity['display_name']} containers'),
           content: SizedBox(
-            width: 820,
+            width: 880,
             child: versions.isEmpty
                 ? const Text('No container versions found.')
                 : ListView.separated(
@@ -140,6 +208,11 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
                           'SHA-256: ${version['sha256']}\n'
                           'Evidence objects: ${version['evidence_object_count']}\n'
                           'Size: ${version['size_bytes']} bytes',
+                        ),
+                        trailing: TextButton.icon(
+                          onPressed: () => _validateContainerVersion(version),
+                          icon: const Icon(Icons.verified_outlined),
+                          label: const Text('Validate'),
                         ),
                       );
                     },
@@ -317,6 +390,27 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(width: 140, child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700))),
+          Expanded(child: SelectableText(value)),
         ],
       ),
     );
