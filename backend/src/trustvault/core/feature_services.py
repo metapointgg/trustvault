@@ -29,12 +29,7 @@ from trustvault.storage.local import LocalFilesystemStorage
 
 
 class TrustVaultFeatureService:
-    """Production feature facade over FITS-native TrustVault state.
-
-    This service keeps the first controlled deployment practical: feature endpoints
-    use PostgreSQL operational state where appropriate, but derive archive facts from
-    the current FITS container wherever the FITS archive is the source of truth.
-    """
+    """Production feature facade over FITS-native TrustVault state."""
 
     def __init__(self, db: Session):
         self.db = db
@@ -70,6 +65,26 @@ class TrustVaultFeatureService:
             ) or 0,
         }
 
+    def archive_status(self) -> dict[str, Any]:
+        settings = get_settings()
+        return {
+            **self.dashboard(),
+            "configuration": {
+                "storage_provider": settings.storage_provider,
+                "queue_provider": settings.queue_provider,
+                "source_folder": "local-data/storage/source-imports" if settings.storage_provider == "local" else settings.s3_source_bucket,
+                "containers_folder": "local-data/storage/fits-containers" if settings.storage_provider == "local" else settings.s3_fits_bucket,
+                "index_path": "PostgreSQL table: fits_index_entries",
+                "exports_folder": "local-data/storage/derived-reports" if settings.storage_provider == "local" else settings.s3_export_bucket,
+            },
+            "archive_checks": {
+                "fits_source_of_truth": True,
+                "index_rebuildable": True,
+                "direct_fits_search_available": True,
+                "cross_archive_index_available": True,
+            },
+        }
+
     def health(self) -> dict[str, Any]:
         storage_ok = True
         storage_error = None
@@ -91,9 +106,22 @@ class TrustVaultFeatureService:
             },
         }
 
-    def customers(self) -> list[dict[str, Any]]:
+    def customers(
+        self,
+        *,
+        risk_rating: str | None = None,
+        jurisdiction: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
         entities = self.db.scalars(select(Entity).order_by(Entity.external_id.asc())).all()
-        return [self.customer_summary(entity) for entity in entities]
+        rows = [self.customer_summary(entity) for entity in entities]
+        if risk_rating:
+            rows = [row for row in rows if self._normalise(row.get("metadata_json", {}).get("risk_rating")) == self._normalise(risk_rating)]
+        if jurisdiction:
+            rows = [row for row in rows if self._normalise(row.get("metadata_json", {}).get("jurisdiction")) == self._normalise(jurisdiction)]
+        if limit is not None:
+            rows = rows[:limit]
+        return rows
 
     def customer_summary(self, entity: Entity | str) -> dict[str, Any]:
         entity_obj = self._entity(entity) if isinstance(entity, str) else entity
@@ -108,6 +136,8 @@ class TrustVaultFeatureService:
             "entity_type": entity_obj.entity_type,
             "status": entity_obj.status,
             "metadata_json": entity_obj.metadata_json,
+            "risk_rating": entity_obj.metadata_json.get("risk_rating") if entity_obj.metadata_json else None,
+            "jurisdiction": entity_obj.metadata_json.get("jurisdiction") if entity_obj.metadata_json else None,
             "evidence_object_count": evidence_count,
             "has_current_fits_container": current is not None,
             "current_container_version_id": str(current.id) if current else None,
@@ -115,6 +145,23 @@ class TrustVaultFeatureService:
             "current_container_storage_uri": current.storage_uri if current else None,
             "created_at": entity_obj.created_at,
             "updated_at": entity_obj.updated_at,
+        }
+
+    def entity_evidence_summary(self, entity_id: str) -> dict[str, Any]:
+        entity = self._entity(entity_id)
+        current = self._current_fits(entity.id, required=False)
+        manifest = current.manifest_json.get("evidence_objects", []) if current else []
+        by_category: dict[str, int] = {}
+        by_document_type: dict[str, int] = {}
+        for item in manifest:
+            by_category[str(item.get("category") or item.get("object_type") or "unknown")] = by_category.get(str(item.get("category") or item.get("object_type") or "unknown"), 0) + 1
+            by_document_type[str(item.get("document_type") or item.get("object_type") or "unknown")] = by_document_type.get(str(item.get("document_type") or item.get("object_type") or "unknown"), 0) + 1
+        return {
+            "entity": self.customer_summary(entity),
+            "container_version_id": str(current.id) if current else None,
+            "evidence_count": len(manifest),
+            "counts_by_category": by_category,
+            "counts_by_document_type": by_document_type,
         }
 
     def comparison(self, entity_id: str, query: str | None = None) -> dict[str, Any]:
@@ -167,6 +214,8 @@ class TrustVaultFeatureService:
             ("source_of_wealth", "source_of_wealth", "source_of_wealth"),
             ("cdd_risk_review", "cdd_review", "cdd_risk_review"),
             ("account_opening_application", "customer_documents", "account_opening_application"),
+            ("screening_evidence", "customer_documents", "screening"),
+            ("correspondence_due_diligence", "communications", "email"),
         ]
         for key, category, document_type in defaults:
             self.db.add(RulesetRule(
@@ -202,6 +251,8 @@ class TrustVaultFeatureService:
             "status": ruleset.status,
             "description": ruleset.description,
             "metadata_json": ruleset.metadata_json,
+            "rule_count": len(rules),
+            "required_rule_count": sum(1 for rule in rules if rule.required),
             "rules": [
                 {
                     "id": str(rule.id),
@@ -356,8 +407,14 @@ class TrustVaultFeatureService:
             "features": [
                 "dashboard", "health", "comparison", "customers", "search", "completeness", "rulesets",
                 "ingestion", "extraction", "retention", "integrity", "export", "api", "audit", "jobs", "licence",
+                "query_interpretation", "cross_archive_search", "direct_fits_search",
             ],
             "source_of_truth": "FITS containers",
+            "query_modes": {
+                "direct_fits_search": "Selected-customer evidence search reads the FITS archive directly.",
+                "cross_archive_search": "Archive-wide and cohort searches use the rebuildable PostgreSQL index.",
+                "natural_language_interpretation": "Deterministic interpreter normalises onboarding to snapshot_id=ONBOARDING, not document_type=ONBOARDING.",
+            },
         }
 
     def _read_json_hdus(self, container: EntityContainerVersion, names: list[str]) -> dict[str, Any]:
@@ -399,3 +456,6 @@ class TrustVaultFeatureService:
         if current is None and required:
             raise ValueError("Entity has no current FITS container")
         return current
+
+    def _normalise(self, value: Any) -> str:
+        return str(value or "").strip().lower().replace("_", " ").replace("-", " ")
