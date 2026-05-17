@@ -8,7 +8,6 @@ from astropy.io import fits
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from trustvault.core.hashing import sha256_bytes
 from trustvault.core.storage_uri import parse_storage_uri
 from trustvault.db.models import Entity, EntityContainerVersion, FitsIndexEntry
 from trustvault.settings import get_settings
@@ -67,6 +66,28 @@ class FitsContainerReader:
                 "hdus": hdu_summaries,
             }
 
+    def debug_search_text(self, entity_id_or_external_id: str, query: str) -> dict[str, Any]:
+        entity = self._get_entity(entity_id_or_external_id)
+        version = self._get_current_fits_version(entity.id)
+        normalised_query = query.strip().lower()
+        rows = self._read_search_rows(entity, version)
+        return {
+            "query": query,
+            "normalised_query": normalised_query,
+            "entity_id": str(entity.id),
+            "entity_external_id": entity.external_id,
+            "container_version_id": str(version.id),
+            "row_count": len(rows),
+            "rows": [
+                {
+                    **row,
+                    "searchable_contains_query": normalised_query in row["searchable_text"].lower(),
+                    "searchable_text_preview": row["searchable_text"][:1000],
+                }
+                for row in rows
+            ],
+        }
+
     def direct_search(self, entity_id_or_external_id: str, query: str, limit: int = 50) -> dict[str, Any]:
         entity = self._get_entity(entity_id_or_external_id)
         version = self._get_current_fits_version(entity.id)
@@ -74,38 +95,27 @@ class FitsContainerReader:
         if not normalised_query:
             return self._empty_search_result(query, entity, version)
 
-        data = self._read_container_bytes(version)
         results: list[dict[str, Any]] = []
-        with fits.open(io.BytesIO(data), checksum=True) as hdul:
-            manifest = self._try_read_json_hdu(hdul, "MANIFEST") or []
-            ocr_rows = self._try_read_json_hdu(hdul, "OCR_TEXT") or []
-            ocr_by_object = {row.get("object_id"): row for row in ocr_rows if isinstance(row, dict)}
-            hdu_by_name = {hdu.name: hdu for hdu in hdul}
-
-            for manifest_row in [row for row in manifest if isinstance(row, dict)]:
-                hdu_name = manifest_row.get("hdu_name")
-                payload_hdu = hdu_by_name.get(hdu_name)
-                payload_text = self._payload_text(payload_hdu, manifest_row) if payload_hdu is not None else ""
-                ocr_text = ocr_by_object.get(manifest_row.get("id"), {}).get("extracted_text", "")
-                searchable = self._build_searchable_text(manifest_row, payload_text, ocr_text)
-                if normalised_query in searchable.lower():
-                    results.append(
-                        {
-                            "entity_id": str(entity.id),
-                            "entity_external_id": entity.external_id,
-                            "entity_display_name": entity.display_name,
-                            "container_version_id": str(version.id),
-                            "evidence_object_id": manifest_row.get("id"),
-                            "hdu_name": hdu_name,
-                            "filename": manifest_row.get("filename"),
-                            "object_type": manifest_row.get("object_type"),
-                            "source_system": manifest_row.get("source_system"),
-                            "sha256": manifest_row.get("sha256"),
-                            "snippet": self._snippet(searchable, normalised_query),
-                        }
-                    )
-                if len(results) >= limit:
-                    break
+        for row in self._read_search_rows(entity, version):
+            searchable = row["searchable_text"]
+            if normalised_query in searchable.lower():
+                results.append(
+                    {
+                        "entity_id": str(entity.id),
+                        "entity_external_id": entity.external_id,
+                        "entity_display_name": entity.display_name,
+                        "container_version_id": str(version.id),
+                        "evidence_object_id": row.get("evidence_object_id"),
+                        "hdu_name": row.get("hdu_name"),
+                        "filename": row.get("filename"),
+                        "object_type": row.get("object_type"),
+                        "source_system": row.get("source_system"),
+                        "sha256": row.get("sha256"),
+                        "snippet": self._snippet(searchable, normalised_query),
+                    }
+                )
+            if len(results) >= limit:
+                break
 
         return {
             "query": query,
@@ -169,6 +179,7 @@ class FitsContainerReader:
             "query": query,
             "entity_id": str(entity.id) if entity else None,
             "entity_external_id": entity.external_id if entity else None,
+            "container_version_id": None,
             "result_count": len(results),
             "results": results,
         }
@@ -214,35 +225,91 @@ class FitsContainerReader:
 
     def _index_version(self, entity: Entity, version: EntityContainerVersion) -> int:
         self.db.execute(delete(FitsIndexEntry).where(FitsIndexEntry.entity_id == entity.id))
-        data = self._read_container_bytes(version)
         count = 0
+        for row in self._read_search_rows(entity, version):
+            self.db.add(
+                FitsIndexEntry(
+                    entity_id=entity.id,
+                    container_version_id=version.id,
+                    evidence_object_id=row.get("evidence_object_id"),
+                    hdu_name=str(row.get("hdu_name") or ""),
+                    filename=row.get("filename"),
+                    object_type=row.get("object_type"),
+                    source_system=row.get("source_system"),
+                    sha256=row.get("sha256"),
+                    text_content=row["searchable_text"],
+                    metadata_json=row.get("manifest_row") or {},
+                )
+            )
+            count += 1
+        return count
+
+    def _read_search_rows(self, entity: Entity, version: EntityContainerVersion) -> list[dict[str, Any]]:
+        data = self._read_container_bytes(version)
+        rows: list[dict[str, Any]] = []
         with fits.open(io.BytesIO(data), checksum=True) as hdul:
             manifest = self._try_read_json_hdu(hdul, "MANIFEST") or []
             ocr_rows = self._try_read_json_hdu(hdul, "OCR_TEXT") or []
-            ocr_by_object = {row.get("object_id"): row for row in ocr_rows if isinstance(row, dict)}
             hdu_by_name = {hdu.name: hdu for hdu in hdul}
+            ocr_by_object = {str(row.get("object_id")): row for row in ocr_rows if isinstance(row, dict)}
+
             for manifest_row in [row for row in manifest if isinstance(row, dict)]:
-                hdu_name = manifest_row.get("hdu_name")
+                object_id = str(manifest_row.get("id") or "")
+                hdu_name = str(manifest_row.get("hdu_name") or "")
                 payload_hdu = hdu_by_name.get(hdu_name)
                 payload_text = self._payload_text(payload_hdu, manifest_row) if payload_hdu is not None else ""
-                ocr_text = ocr_by_object.get(manifest_row.get("id"), {}).get("extracted_text", "")
-                text_content = self._build_searchable_text(manifest_row, payload_text, ocr_text)
-                self.db.add(
-                    FitsIndexEntry(
-                        entity_id=entity.id,
-                        container_version_id=version.id,
-                        evidence_object_id=manifest_row.get("id"),
-                        hdu_name=str(hdu_name or ""),
-                        filename=manifest_row.get("filename"),
-                        object_type=manifest_row.get("object_type"),
-                        source_system=manifest_row.get("source_system"),
-                        sha256=manifest_row.get("sha256"),
-                        text_content=text_content,
-                        metadata_json=manifest_row,
-                    )
+                ocr_row = ocr_by_object.get(object_id, {})
+                ocr_text = str(ocr_row.get("extracted_text") or "")
+                searchable = self._build_searchable_text(manifest_row, payload_text, ocr_text)
+                rows.append(
+                    {
+                        "entity_id": str(entity.id),
+                        "entity_external_id": entity.external_id,
+                        "container_version_id": str(version.id),
+                        "evidence_object_id": object_id,
+                        "hdu_name": hdu_name,
+                        "filename": manifest_row.get("filename"),
+                        "object_type": manifest_row.get("object_type"),
+                        "source_system": manifest_row.get("source_system"),
+                        "sha256": manifest_row.get("sha256"),
+                        "payload_text_length": len(payload_text),
+                        "ocr_text_length": len(ocr_text),
+                        "manifest_row": manifest_row,
+                        "searchable_text": searchable,
+                    }
                 )
-                count += 1
-        return count
+
+            indexed_object_ids = {row["evidence_object_id"] for row in rows}
+            for ocr_row in [row for row in ocr_rows if isinstance(row, dict)]:
+                object_id = str(ocr_row.get("object_id") or "")
+                if object_id in indexed_object_ids:
+                    continue
+                ocr_text = str(ocr_row.get("extracted_text") or "")
+                searchable = "\n".join(
+                    [
+                        str(ocr_row.get("filename", "")),
+                        object_id,
+                        ocr_text,
+                    ]
+                ).strip()
+                rows.append(
+                    {
+                        "entity_id": str(entity.id),
+                        "entity_external_id": entity.external_id,
+                        "container_version_id": str(version.id),
+                        "evidence_object_id": object_id,
+                        "hdu_name": "OCR_TEXT",
+                        "filename": ocr_row.get("filename"),
+                        "object_type": None,
+                        "source_system": "OCR_TEXT",
+                        "sha256": None,
+                        "payload_text_length": 0,
+                        "ocr_text_length": len(ocr_text),
+                        "manifest_row": {},
+                        "searchable_text": searchable,
+                    }
+                )
+        return rows
 
     def _empty_search_result(self, query: str, entity: Entity, version: EntityContainerVersion) -> dict[str, Any]:
         return {
@@ -257,9 +324,11 @@ class FitsContainerReader:
     def _build_searchable_text(self, manifest_row: dict[str, Any], payload_text: str, ocr_text: str) -> str:
         return "\n".join(
             [
+                str(manifest_row.get("id", "")),
                 str(manifest_row.get("filename", "")),
                 str(manifest_row.get("object_type", "")),
                 str(manifest_row.get("source_system", "")),
+                str(manifest_row.get("content_type", "")),
                 json.dumps(manifest_row.get("metadata", {}), default=str),
                 payload_text or "",
                 ocr_text or "",
