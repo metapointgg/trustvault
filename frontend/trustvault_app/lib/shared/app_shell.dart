@@ -20,12 +20,16 @@ class AppShell extends StatelessWidget {
               switch (index) {
                 case 0:
                   context.go('/');
+                  break;
                 case 1:
                   context.go('/jobs');
+                  break;
                 case 2:
                   context.go('/audit');
+                  break;
                 case 3:
                   context.go('/licence');
+                  break;
               }
             },
             leading: const Padding(
