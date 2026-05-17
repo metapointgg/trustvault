@@ -7,13 +7,20 @@ from sqlalchemy.exc import OperationalError
 from trustvault.db.base import Base
 from trustvault.db.models import (  # noqa: F401
     AuditEvent,
+    CompletenessResult,
+    CompletenessRun,
     Entity,
     EntityContainerVersion,
     EvidenceObject,
-    ExportPack,
+    ExtractionEvent,
     FitsIndexEntry,
     Job,
     LicenceStatus,
+    RetentionPolicy,
+    Ruleset,
+    RulesetRule,
+    SourceSystem,
+    User,
 )
 from trustvault.db.session import engine
 
@@ -34,6 +41,11 @@ def wait_for_database(max_attempts: int = 30, delay_seconds: int = 2) -> None:
 
 
 def initialise_database() -> None:
+    """Initial local bootstrap for the controlled deployment build.
+
+    Production deployments should use Alembic migrations. The local bootstrap keeps
+    docker-compose usable while the production schema is still stabilising.
+    """
     wait_for_database()
     Base.metadata.create_all(bind=engine)
 
