@@ -1,0 +1,33 @@
+{
+  "licence_id": "lic_trustvault_demo_001",
+  "customer_name": "Local Development",
+  "edition": "developer",
+  "deployment_id": "local-dev",
+  "valid_from": "2026-01-01",
+  "valid_until": "2027-01-01",
+  "grace_days": 30,
+  "max_entities": 1000,
+  "max_users": 10,
+  "max_storage_gb": 100,
+  "environment": "local",
+  "modules": [
+    "core_archive",
+    "bulk_ingestion",
+    "continuous_ingestion",
+    "completeness_rules",
+    "ruleset_builder",
+    "ocr_extraction",
+    "direct_fits_search",
+    "ai_assist",
+    "evidence_pack_export",
+    "retention_legal_hold",
+    "audit_log",
+    "api_access"
+  ],
+  "cloud_binding": {
+    "aws_account_id": null,
+    "azure_tenant_id": null,
+    "azure_subscription_id": null
+  },
+  "signature": "development-placeholder"
+}
