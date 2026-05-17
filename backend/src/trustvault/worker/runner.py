@@ -1,6 +1,7 @@
 import logging
 import time
 from datetime import datetime, timezone
+from typing import Any, Callable
 
 from sqlalchemy import select
 
@@ -8,13 +9,19 @@ from trustvault.audit.events import JOB_COMPLETED, JOB_FAILED
 from trustvault.audit.logger import AuditLogger
 from trustvault.db.models import Job
 from trustvault.db.session import SessionLocal
+from trustvault.worker.handlers.ingestion import handle_ingest_text_evidence
 
 logger = logging.getLogger(__name__)
+
+JobHandler = Callable[[Any, dict[str, Any], str], dict[str, Any]]
 
 
 class WorkerRunner:
     def __init__(self, poll_seconds: int = 5):
         self.poll_seconds = poll_seconds
+        self.handlers: dict[str, JobHandler] = {
+            "ingest_text_evidence": handle_ingest_text_evidence,
+        }
 
     def run_forever(self) -> None:
         logger.info("TrustVault worker started")
@@ -42,13 +49,19 @@ class WorkerRunner:
             db.refresh(job)
 
             try:
-                # Placeholder until POC operations are migrated into handlers.
+                handler = self.handlers.get(job.job_type)
+                if handler is None:
+                    result = {
+                        "message": "Job processed by TrustVault worker skeleton",
+                        "job_type": job.job_type,
+                        "handler": "placeholder",
+                    }
+                else:
+                    result = handler(db, job.payload, job.correlation_id)
+
                 job.status = "succeeded"
                 job.completed_at = datetime.now(timezone.utc)
-                job.result = {
-                    "message": "Job processed by TrustVault worker skeleton",
-                    "job_type": job.job_type,
-                }
+                job.result = result
                 db.commit()
                 audit_logger.log(
                     JOB_COMPLETED,
