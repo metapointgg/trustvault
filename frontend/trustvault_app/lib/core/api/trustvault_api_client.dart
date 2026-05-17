@@ -45,6 +45,46 @@ class TrustVaultApiClient {
     return response.data ?? <dynamic>[];
   }
 
+  Future<Map<String, dynamic>> inspectEntityFits(String entityId) async {
+    final response = await _dio.get<Map<String, dynamic>>('/api/v1/fits/entities/$entityId/inspect');
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> searchEntityFits(String entityId, String query) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/fits/entities/$entityId/search',
+      data: <String, dynamic>{
+        'query': query,
+        'limit': 50,
+      },
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> rebuildFitsIndex({String? entityExternalId}) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/fits/index/rebuild',
+      data: <String, dynamic>{
+        if (entityExternalId != null) 'entity_external_id': entityExternalId,
+      },
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> queueFitsIndexRebuild({String? entityExternalId}) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/jobs',
+      data: <String, dynamic>{
+        'job_type': 'rebuild_fits_index',
+        'payload': <String, dynamic>{
+          if (entityExternalId != null) 'entity_external_id': entityExternalId,
+        },
+        'created_by_user_id': 'local-user',
+      },
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
   Future<Map<String, dynamic>> rebuildEntityContainer(String entityExternalId) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/containers/rebuild',
