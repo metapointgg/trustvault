@@ -5,7 +5,14 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
 from trustvault.db.base import Base
-from trustvault.db.models import AuditEvent, Entity, EvidenceObject, Job, LicenceStatus  # noqa: F401
+from trustvault.db.models import (  # noqa: F401
+    AuditEvent,
+    Entity,
+    EntityContainerVersion,
+    EvidenceObject,
+    Job,
+    LicenceStatus,
+)
 from trustvault.db.session import engine
 
 logger = logging.getLogger(__name__)
