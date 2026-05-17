@@ -22,12 +22,15 @@ class AppShell extends StatelessWidget {
                   context.go('/');
                   break;
                 case 1:
-                  context.go('/jobs');
+                  context.go('/entities');
                   break;
                 case 2:
-                  context.go('/audit');
+                  context.go('/jobs');
                   break;
                 case 3:
+                  context.go('/audit');
+                  break;
+                case 4:
                   context.go('/licence');
                   break;
               }
@@ -41,6 +44,11 @@ class AppShell extends StatelessWidget {
                 icon: Icon(Icons.dashboard_outlined),
                 selectedIcon: Icon(Icons.dashboard),
                 label: Text('Dashboard'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.business_outlined),
+                selectedIcon: Icon(Icons.business),
+                label: Text('Entities'),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.work_history_outlined),
@@ -67,9 +75,10 @@ class AppShell extends StatelessWidget {
   }
 
   int _selectedIndex(String location) {
-    if (location.startsWith('/jobs')) return 1;
-    if (location.startsWith('/audit')) return 2;
-    if (location.startsWith('/licence')) return 3;
+    if (location.startsWith('/entities')) return 1;
+    if (location.startsWith('/jobs')) return 2;
+    if (location.startsWith('/audit')) return 3;
+    if (location.startsWith('/licence')) return 4;
     return 0;
   }
 }
