@@ -105,6 +105,16 @@ class _CustomerContextBar extends StatelessWidget {
   final Future<List<dynamic>> customersFuture;
   final VoidCallback onRefresh;
 
+  Map<String, dynamic>? _findCustomer(List<dynamic> customers, String? externalId) {
+    for (final item in customers) {
+      final customer = item as Map<String, dynamic>;
+      if (customer['external_id']?.toString() == externalId) {
+        return customer;
+      }
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -130,19 +140,19 @@ class _CustomerContextBar extends StatelessWidget {
                   return const Text('No customer selected. Upload a source folder to begin.');
                 }
                 final current = SelectedCustomerController.selected.value;
-                if (current == null) {
+                if (current == null || _findCustomer(customers, current['external_id']?.toString()) == null) {
                   SelectedCustomerController.select(customers.first as Map<String, dynamic>);
                 }
                 return ValueListenableBuilder<Map<String, dynamic>?>(
                   valueListenable: SelectedCustomerController.selected,
                   builder: (context, selected, _) {
                     final selectedExternalId = selected?['external_id']?.toString();
+                    final selectedValue = _findCustomer(customers, selectedExternalId)?['external_id']?.toString() ??
+                        (customers.first as Map<String, dynamic>)['external_id']?.toString();
                     return DropdownButtonHideUnderline(
                       child: DropdownButton<String>(
                         isExpanded: true,
-                        value: customers.any((item) => (item as Map<String, dynamic>)['external_id']?.toString() == selectedExternalId)
-                            ? selectedExternalId
-                            : (customers.first as Map<String, dynamic>)['external_id']?.toString(),
+                        value: selectedValue,
                         items: customers.map((item) {
                           final customer = item as Map<String, dynamic>;
                           final label = '${customer['display_name'] ?? customer['external_id']} (${customer['external_id']})';
@@ -152,11 +162,7 @@ class _CustomerContextBar extends StatelessWidget {
                           );
                         }).toList(),
                         onChanged: (value) {
-                          final selectedCustomer = customers
-                              .cast<Map<String, dynamic>>()
-                              .where((item) => item['external_id']?.toString() == value)
-                              .firstOrNull;
-                          SelectedCustomerController.select(selectedCustomer);
+                          SelectedCustomerController.select(_findCustomer(customers, value));
                         },
                       ),
                     );
