@@ -52,6 +52,23 @@ class EntityContainerVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class FitsIndexEntry(Base):
+    __tablename__ = "fits_index_entries"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    container_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    evidence_object_id: Mapped[str | None] = mapped_column(String(100), index=True, nullable=True)
+    hdu_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    filename: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    object_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source_system: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    text_content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    metadata_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Job(Base):
     __tablename__ = "jobs"
 
