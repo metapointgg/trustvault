@@ -3,8 +3,10 @@ import 'package:go_router/go_router.dart';
 import '../features/audit/audit_screen.dart';
 import '../features/dashboard/dashboard_screen.dart';
 import '../features/entities/entities_screen.dart';
+import '../features/export/fits_export_screen.dart';
 import '../features/feature_status/feature_status_screen.dart';
 import '../features/fits/fits_operations_screen.dart';
+import '../features/ingestion/source_folder_upload_screen.dart';
 import '../features/jobs/jobs_screen.dart';
 import '../features/licence/licence_screen.dart';
 import '../features/search/search_screen.dart';
@@ -52,7 +54,7 @@ final appRouter = GoRouter(
             loader: (api) async => <String, dynamic>{'rulesets': await api.getRulesets()},
           ),
         ),
-        GoRoute(path: '/ingestion', builder: (context, state) => const EntitiesScreen()),
+        GoRoute(path: '/ingestion', builder: (context, state) => const SourceFolderUploadScreen()),
         GoRoute(
           path: '/extraction',
           builder: (context, state) => FeatureStatusScreen(
@@ -77,14 +79,7 @@ final appRouter = GoRouter(
             loader: (api) => api.getIntegritySummary(),
           ),
         ),
-        GoRoute(
-          path: '/export',
-          builder: (context, state) => FeatureStatusScreen(
-            title: 'Export',
-            description: 'FITS-native archive export model. The FITS file is the primary export artefact.',
-            loader: (api) => api.getExportStatus(),
-          ),
-        ),
+        GoRoute(path: '/export', builder: (context, state) => const FitsExportScreen()),
         GoRoute(
           path: '/api',
           builder: (context, state) => FeatureStatusScreen(
