@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 
 class TrustVaultApiClient {
@@ -9,11 +11,13 @@ class TrustVaultApiClient {
               defaultValue: 'http://localhost:8000',
             ),
             connectTimeout: const Duration(seconds: 10),
-            receiveTimeout: const Duration(seconds: 30),
+            receiveTimeout: const Duration(seconds: 60),
           ),
         );
 
   final Dio _dio;
+
+  String get baseUrl => _dio.options.baseUrl;
 
   Future<Map<String, dynamic>> getHealth() async => _getMap('/health');
   Future<Map<String, dynamic>> getApiHealth() async => _getMap('/api/v1/health');
@@ -96,8 +100,19 @@ class TrustVaultApiClient {
     return response.data ?? <String, dynamic>{};
   }
 
-  Future<String> fitsDownloadUrl(String containerVersionId) async {
+  String fitsDownloadUrl(String containerVersionId) {
     return '${_dio.options.baseUrl}/api/v1/export/containers/$containerVersionId/fits';
+  }
+
+  Future<Map<String, dynamic>> uploadSourceFolderZip({required String filename, required Uint8List bytes}) async {
+    final formData = FormData.fromMap(<String, dynamic>{
+      'file': MultipartFile.fromBytes(bytes, filename: filename),
+    });
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/ingestion/source-folder/upload',
+      data: formData,
+    );
+    return response.data ?? <String, dynamic>{};
   }
 
   Future<Map<String, dynamic>> queueEntityContainerRebuild(String entityExternalId) async {
