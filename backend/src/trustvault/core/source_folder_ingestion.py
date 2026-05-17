@@ -85,7 +85,7 @@ class SourceFolderIngestionService:
                 source_system = self._source_system_from_path(relative, customer, source_system_default)
                 source_systems.add(source_system)
                 content_type = mimetypes.guess_type(relative)[0] or "application/octet-stream"
-                search_text = search_text_by_stem.get(self._search_stem(name))
+                search_text = search_text_by_stem.get(self._search_key(name, root))
                 metadata = {
                     "source_path": relative,
                     "category": category,
@@ -164,14 +164,21 @@ class SourceFolderIngestionService:
 
     def _read_search_texts(self, archive: zipfile.ZipFile, names: list[str]) -> dict[str, str]:
         result: dict[str, str] = {}
+        root = self._detect_root(names)
         for name in names:
             if not name.endswith(".search.txt"):
                 continue
-            result[self._search_stem(name)] = archive.read(name).decode("utf-8", errors="replace")
+            result[self._search_key(name, root)] = archive.read(name).decode("utf-8", errors="replace")
         return result
 
-    def _search_stem(self, name: str) -> str:
-        return name.removesuffix(".search.txt")
+    def _search_key(self, name: str, root: str) -> str:
+        relative = self._relative_path(name, root)
+        if relative.endswith(".search.txt"):
+            relative = relative.removesuffix(".search.txt")
+        path = PurePosixPath(relative)
+        # Match sidecars like documents/passport_scan_certified.search.txt to
+        # payloads like documents/passport_scan_certified.pdf.
+        return str(path.with_suffix(""))
 
     def _object_type_from_path(self, relative: str) -> str:
         path = PurePosixPath(relative)
@@ -225,9 +232,7 @@ class SourceFolderIngestionService:
             "metadata": "TrustVault Import Metadata",
             "large_evidence": "Legacy Archive",
         }
-        source_systems = set(customer.get("source_systems") or [])
-        candidate = mapping.get(first, default)
-        return candidate if not source_systems or candidate in source_systems else candidate
+        return mapping.get(first, default)
 
     def _get_or_create_entity(self, external_id: str, display_name: str, metadata: dict[str, Any]) -> Entity:
         entity = self.db.scalars(select(Entity).where(Entity.external_id == external_id)).first()
