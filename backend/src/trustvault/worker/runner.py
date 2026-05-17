@@ -9,18 +9,24 @@ from trustvault.audit.events import JOB_COMPLETED, JOB_FAILED
 from trustvault.audit.logger import AuditLogger
 from trustvault.db.models import Job
 from trustvault.db.session import SessionLocal
+from trustvault.worker.handlers.containers import handle_rebuild_entity_container
 from trustvault.worker.handlers.ingestion import handle_ingest_text_evidence
 
 logger = logging.getLogger(__name__)
 
-JobHandler = Callable[[Any, dict[str, Any], str], dict[str, Any]]
+JobHandler = Callable[[Any, dict[str, Any], str, str | None], dict[str, Any]]
+
+
+def _ingest_text_adapter(db: Any, payload: dict[str, Any], correlation_id: str, job_id: str | None) -> dict[str, Any]:
+    return handle_ingest_text_evidence(db, payload, correlation_id)
 
 
 class WorkerRunner:
     def __init__(self, poll_seconds: int = 5):
         self.poll_seconds = poll_seconds
         self.handlers: dict[str, JobHandler] = {
-            "ingest_text_evidence": handle_ingest_text_evidence,
+            "ingest_text_evidence": _ingest_text_adapter,
+            "rebuild_entity_container": handle_rebuild_entity_container,
         }
 
     def run_forever(self) -> None:
@@ -57,7 +63,7 @@ class WorkerRunner:
                         "handler": "placeholder",
                     }
                 else:
-                    result = handler(db, job.payload, job.correlation_id)
+                    result = handler(db, job.payload, job.correlation_id, str(job.id))
 
                 job.status = "succeeded"
                 job.completed_at = datetime.now(timezone.utc)
