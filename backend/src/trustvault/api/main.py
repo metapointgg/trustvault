@@ -19,6 +19,7 @@ from trustvault.api.routes import (
     integrity,
     jobs,
     licence,
+    query,
     retention,
     rulesets,
 )
@@ -50,6 +51,7 @@ def startup() -> None:
 app.include_router(health.router)
 app.include_router(dashboard.router)
 app.include_router(api_status.router)
+app.include_router(query.router)
 app.include_router(customers.router)
 app.include_router(comparison.router)
 app.include_router(rulesets.router)
