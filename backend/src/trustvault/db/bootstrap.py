@@ -10,6 +10,7 @@ from trustvault.db.models import (  # noqa: F401
     Entity,
     EntityContainerVersion,
     EvidenceObject,
+    ExportPack,
     FitsIndexEntry,
     Job,
     LicenceStatus,
@@ -33,11 +34,6 @@ def wait_for_database(max_attempts: int = 30, delay_seconds: int = 2) -> None:
 
 
 def initialise_database() -> None:
-    """Create database tables for the initial controlled deployment skeleton.
-
-    Alembic migrations should replace this for production-grade schema management once
-    the first model set stabilises.
-    """
     wait_for_database()
     Base.metadata.create_all(bind=engine)
 
