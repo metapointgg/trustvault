@@ -23,21 +23,59 @@ class TrustVaultApiClient {
   Future<Map<String, dynamic>> getApiHealth() async => _getMap('/api/v1/health');
   Future<Map<String, dynamic>> getDashboardSummary() async => _getMap('/api/v1/dashboard/summary');
   Future<Map<String, dynamic>> getApiStatus() async => _getMap('/api/v1/api/status');
+  Future<Map<String, dynamic>> getArchiveStatus() async => _getMap('/api/v1/query/archive/status');
+  Future<Map<String, dynamic>> getQueryScenarios() async => _getMap('/api/v1/query/scenarios');
   Future<Map<String, dynamic>> getLicenceStatus() async => _getMap('/api/v1/licence/status');
   Future<Map<String, dynamic>> getExportStatus() async => _getMap('/api/v1/export/status');
   Future<Map<String, dynamic>> getRetentionReport() async => _getMap('/api/v1/retention/report');
   Future<Map<String, dynamic>> getIntegritySummary() async => _getMap('/api/v1/integrity/summary');
 
-  Future<List<dynamic>> getCustomers() async => _getList('/api/v1/customers');
+  Future<List<dynamic>> getCustomers({String? riskRating, String? jurisdiction, int? limit}) async {
+    final response = await _dio.get<List<dynamic>>(
+      '/api/v1/customers',
+      queryParameters: <String, dynamic>{
+        if (riskRating != null && riskRating.isNotEmpty) 'risk_rating': riskRating,
+        if (jurisdiction != null && jurisdiction.isNotEmpty) 'jurisdiction': jurisdiction,
+        if (limit != null) 'limit': limit,
+      },
+    );
+    return response.data ?? <dynamic>[];
+  }
+
   Future<List<dynamic>> getEntities() async => _getList('/api/v1/entities');
   Future<List<dynamic>> getAuditEvents() async => _getList('/api/v1/audit/events');
   Future<List<dynamic>> getJobs() async => _getList('/api/v1/jobs');
   Future<List<dynamic>> getRulesets() async => _getList('/api/v1/rulesets');
 
   Future<Map<String, dynamic>> getCustomer(String customerId) async => _getMap('/api/v1/customers/$customerId');
+  Future<Map<String, dynamic>> getCustomerEvidenceSummary(String customerId) async => _getMap('/api/v1/customers/$customerId/summary');
   Future<Map<String, dynamic>> getExtractionReport(String entityId) async => _getMap('/api/v1/extraction/entities/$entityId/report');
   Future<Map<String, dynamic>> getEntityRetention(String entityId) async => _getMap('/api/v1/retention/entities/$entityId');
   Future<Map<String, dynamic>> getEntityIntegrity(String entityId) async => _getMap('/api/v1/integrity/entities/$entityId');
+
+  Future<Map<String, dynamic>> interpretQuery({required String query, String? entityExternalId}) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/query/interpret',
+      data: <String, dynamic>{
+        'query': query,
+        if (entityExternalId != null && entityExternalId.isNotEmpty) 'entity_external_id': entityExternalId,
+      },
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> executeQuery({required String query, String? entityExternalId, int limit = 50}) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/query/execute',
+      data: <String, dynamic>{
+        'query': query,
+        'limit': limit,
+        if (entityExternalId != null && entityExternalId.isNotEmpty) 'entity_external_id': entityExternalId,
+      },
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
   Future<Map<String, dynamic>> compareFitsVsDatabase(String entityId, {String? query}) async {
     final response = await _dio.get<Map<String, dynamic>>(
       '/api/v1/comparison/entities/$entityId/fits-vs-db',
