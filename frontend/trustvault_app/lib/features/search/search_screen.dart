@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/trustvault_api_client.dart';
+import '../../shared/selected_customer.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -12,16 +13,37 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   final TrustVaultApiClient _apiClient = TrustVaultApiClient();
   final TextEditingController _queryController = TextEditingController(text: 'passport');
-  final TextEditingController _entityController = TextEditingController(text: 'CUST-000001');
+  final TextEditingController _entityController = TextEditingController();
 
   Future<Map<String, dynamic>>? _future;
   bool _directFits = true;
+  bool _entityManuallyEdited = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncEntityFromSelectedCustomer();
+    SelectedCustomerController.selected.addListener(_handleSelectedCustomerChanged);
+  }
 
   @override
   void dispose() {
+    SelectedCustomerController.selected.removeListener(_handleSelectedCustomerChanged);
     _queryController.dispose();
     _entityController.dispose();
     super.dispose();
+  }
+
+  void _handleSelectedCustomerChanged() {
+    if (_entityManuallyEdited) return;
+    _syncEntityFromSelectedCustomer();
+  }
+
+  void _syncEntityFromSelectedCustomer() {
+    final externalId = SelectedCustomerController.externalId;
+    if (externalId != null && externalId.isNotEmpty && _entityController.text != externalId) {
+      _entityController.text = externalId;
+    }
   }
 
   void _search() {
@@ -93,7 +115,7 @@ class _SearchScreenState extends State<SearchScreen> {
         children: [
           Text('Evidence search', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
-          const Text('Search directly inside a customer FITS archive, or use the rebuilt index for broader search.'),
+          const Text('Search directly inside the selected customer FITS archive, or use the rebuilt index for broader search.'),
           const SizedBox(height: 24),
           Card(
             child: Padding(
@@ -122,6 +144,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             labelText: 'Customer external ID',
                             border: OutlineInputBorder(),
                           ),
+                          onChanged: (_) => _entityManuallyEdited = true,
                           onSubmitted: (_) => _search(),
                         ),
                       ),
@@ -144,6 +167,15 @@ class _SearchScreenState extends State<SearchScreen> {
                         _directFits = value;
                       });
                     },
+                  ),
+                  TextButton.icon(
+                    onPressed: () {
+                      _entityManuallyEdited = false;
+                      _syncEntityFromSelectedCustomer();
+                      setState(() {});
+                    },
+                    icon: const Icon(Icons.link),
+                    label: const Text('Use selected customer'),
                   ),
                 ],
               ),
