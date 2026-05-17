@@ -60,6 +60,22 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
     );
   }
 
+  Future<void> _rebuildContainer(Map<String, dynamic> entity) async {
+    final result = await _apiClient.rebuildEntityContainer('${entity['external_id']}');
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Built container v${result['version_number']} for ${entity['external_id']}')),
+    );
+  }
+
+  Future<void> _queueContainerRebuild(Map<String, dynamic> entity) async {
+    await _apiClient.queueEntityContainerRebuild('${entity['external_id']}');
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Queued container rebuild for ${entity['external_id']}')),
+    );
+  }
+
   Future<void> _showEvidence(Map<String, dynamic> entity) async {
     final evidenceObjects = await _apiClient.getEntityEvidence('${entity['id']}');
     if (!mounted) return;
@@ -84,6 +100,46 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
                         title: Text('${evidence['object_type']} from ${evidence['source_system']}'),
                         subtitle: Text(
                           'URI: ${evidence['storage_uri']}\nSHA-256: ${evidence['sha256']}',
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close')),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _showContainerVersions(Map<String, dynamic> entity) async {
+    final versions = await _apiClient.getEntityContainerVersions('${entity['external_id']}');
+    if (!mounted) return;
+
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('${entity['display_name']} containers'),
+          content: SizedBox(
+            width: 820,
+            child: versions.isEmpty
+                ? const Text('No container versions found.')
+                : ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: versions.length,
+                    separatorBuilder: (_, __) => const Divider(),
+                    itemBuilder: (context, index) {
+                      final version = versions[index] as Map<String, dynamic>;
+                      return ListTile(
+                        leading: const Icon(Icons.archive_outlined),
+                        title: Text('Version ${version['version_number']} - ${version['status']}'),
+                        subtitle: SelectableText(
+                          'URI: ${version['storage_uri']}\n'
+                          'SHA-256: ${version['sha256']}\n'
+                          'Evidence objects: ${version['evidence_object_count']}\n'
+                          'Size: ${version['size_bytes']} bytes',
                         ),
                       );
                     },
@@ -210,14 +266,46 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
                         itemBuilder: (context, index) {
                           final entity = entities[index] as Map<String, dynamic>;
                           return Card(
-                            child: ListTile(
-                              leading: const Icon(Icons.business_outlined),
-                              title: Text('${entity['display_name']}'),
-                              subtitle: Text('External ID: ${entity['external_id']}\nStatus: ${entity['status']}'),
-                              trailing: TextButton.icon(
-                                onPressed: () => _showEvidence(entity),
-                                icon: const Icon(Icons.folder_open),
-                                label: const Text('Evidence'),
+                            child: Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  ListTile(
+                                    leading: const Icon(Icons.business_outlined),
+                                    title: Text('${entity['display_name']}'),
+                                    subtitle: Text('External ID: ${entity['external_id']}\nStatus: ${entity['status']}'),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                                    child: Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: [
+                                        TextButton.icon(
+                                          onPressed: () => _showEvidence(entity),
+                                          icon: const Icon(Icons.folder_open),
+                                          label: const Text('Evidence'),
+                                        ),
+                                        TextButton.icon(
+                                          onPressed: () => _rebuildContainer(entity),
+                                          icon: const Icon(Icons.archive_outlined),
+                                          label: const Text('Rebuild container'),
+                                        ),
+                                        TextButton.icon(
+                                          onPressed: () => _queueContainerRebuild(entity),
+                                          icon: const Icon(Icons.schedule_send),
+                                          label: const Text('Queue rebuild'),
+                                        ),
+                                        TextButton.icon(
+                                          onPressed: () => _showContainerVersions(entity),
+                                          icon: const Icon(Icons.history),
+                                          label: const Text('Container versions'),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           );
