@@ -10,7 +10,7 @@ ThemeData buildTrustVaultTheme() {
       brightness: Brightness.light,
     ),
     scaffoldBackgroundColor: const Color(0xFFF8FAFC),
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       elevation: 0,
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
