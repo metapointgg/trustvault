@@ -180,13 +180,7 @@ def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]],
 def _safe_summary_row(row: dict[str, Any]) -> dict[str, Any]:
     metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     nested = metadata.get("metadata") if isinstance(metadata.get("metadata"), dict) else {}
-    text_preview = (
-        nested.get("search_text")
-        or metadata.get("search_text")
-        or row.get("text_content")
-        or row.get("snippet")
-        or ""
-    )
+    text_preview = nested.get("search_text") or metadata.get("search_text") or row.get("text_content") or row.get("snippet") or ""
     return {
         "entity_external_id": row.get("entity_external_id"),
         "entity_display_name": row.get("entity_display_name"),
@@ -209,47 +203,98 @@ def _public_row(row: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in row.items() if not key.startswith("_")}
 
 
+def _metadata_value(row: dict[str, Any], key: str) -> Any:
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    nested = metadata.get("metadata") if isinstance(metadata.get("metadata"), dict) else {}
+    if row.get(key) not in (None, ""):
+        return row.get(key)
+    if metadata.get(key) not in (None, ""):
+        return metadata.get(key)
+    return nested.get(key)
+
+
+def _row_matches_cohort(entity: Entity, row: dict[str, Any], structured: StructuredQuery, allowed_external_ids: set[str]) -> tuple[bool, str]:
+    if structured.entity_external_id and entity.external_id != structured.entity_external_id:
+        return False, "entity_external_id_not_matched"
+    if not structured.risk_rating and not structured.jurisdiction:
+        return True, "no_cohort_filter"
+    if entity.external_id in allowed_external_ids:
+        return True, "entity_metadata"
+    risk_ok = not structured.risk_rating or _norm(_metadata_value(row, "risk_rating")) == _norm(structured.risk_rating)
+    jurisdiction_ok = not structured.jurisdiction or _norm(_metadata_value(row, "jurisdiction")) == _norm(structured.jurisdiction)
+    if risk_ok and jurisdiction_ok:
+        return True, "evidence_metadata"
+    return False, "cohort_filter_not_matched"
+
+
 def _structured_index_search(db: Session, service: TrustVaultFeatureService, structured: StructuredQuery, query: str, limit: int) -> dict[str, Any]:
     customers = service.customers(risk_rating=structured.risk_rating, jurisdiction=structured.jurisdiction)
-    entity_filter_applied = bool(structured.risk_rating or structured.jurisdiction)
+    entity_filter_applied = bool(structured.entity_external_id or structured.risk_rating or structured.jurisdiction)
     allowed_external_ids = {customer["external_id"] for customer in customers}
     diagnostics = {
         "entity_filter_applied": entity_filter_applied,
+        "requested_entity_external_id": structured.entity_external_id,
         "requested_risk_rating": structured.risk_rating,
         "requested_jurisdiction": structured.jurisdiction,
         "matching_entity_count": len(customers),
         "matching_entity_external_ids": sorted(allowed_external_ids)[:100],
+        "matching_evidence_metadata_entity_count": 0,
+        "matching_evidence_metadata_external_ids": [],
+        "cohort_rejected_index_entry_count": 0,
         "metadata_filter_applied": bool(structured.categories or structured.document_types or structured.snapshot_id),
         "categories": structured.categories,
         "document_types": structured.document_types,
         "snapshot_id": structured.snapshot_id,
         "search_terms": structured.search_terms,
     }
-    if entity_filter_applied and not customers:
-        return {"query": query, "entity_id": None, "entity_external_id": None, "container_version_id": None, "result_count": 0, "results": [], "filtered_entity_count": 0, "diagnostics": diagnostics}
 
     statement = select(FitsIndexEntry).order_by(FitsIndexEntry.created_at.desc()).limit(5000)
     entries = db.scalars(statement).all()
     rows: list[dict[str, Any]] = []
+    matched_by_evidence_metadata: set[str] = set()
+    matched_by_entity_metadata: set[str] = set()
+
     for entry in entries:
         entity = db.get(Entity, entry.entity_id)
         if entity is None:
             continue
-        if entity_filter_applied and entity.external_id not in allowed_external_ids:
-            continue
         row = _row_from_index_entry(entry, entity)
+        cohort_ok, cohort_source = _row_matches_cohort(entity, row, structured, allowed_external_ids)
+        if not cohort_ok:
+            diagnostics["cohort_rejected_index_entry_count"] += 1
+            continue
+        if cohort_source == "entity_metadata":
+            matched_by_entity_metadata.add(entity.external_id)
+        elif cohort_source == "evidence_metadata":
+            matched_by_evidence_metadata.add(entity.external_id)
         match = _structured_row_match(row, structured)
         if not match["matched"]:
             continue
         row["match_reason"] = match["reason"]
         row["match_score"] = match["score"]
+        row["cohort_match_source"] = cohort_source
         rows.append(row)
 
     rows.sort(key=lambda item: (item.get("match_score", 0), item.get("entity_external_id", ""), item.get("filename", "")), reverse=True)
     limited = [_public_row(row) for row in rows[:limit]]
+    effective_entity_ids = {row["entity_external_id"] for row in rows if row.get("entity_external_id")}
     diagnostics["candidate_index_entry_count"] = len(entries)
     diagnostics["matched_before_limit"] = len(rows)
-    return {"query": query, "entity_id": None, "entity_external_id": None, "container_version_id": None, "result_count": len(limited), "results": limited, "filtered_entity_count": len(customers) if entity_filter_applied else None, "diagnostics": diagnostics}
+    diagnostics["matching_evidence_metadata_entity_count"] = len(matched_by_evidence_metadata)
+    diagnostics["matching_evidence_metadata_external_ids"] = sorted(matched_by_evidence_metadata)[:100]
+    diagnostics["matching_entity_metadata_after_index_scan_count"] = len(matched_by_entity_metadata)
+    diagnostics["effective_matching_entity_count"] = len(effective_entity_ids)
+    diagnostics["effective_matching_entity_external_ids"] = sorted(effective_entity_ids)[:100]
+    return {
+        "query": query,
+        "entity_id": None,
+        "entity_external_id": structured.entity_external_id,
+        "container_version_id": None,
+        "result_count": len(limited),
+        "results": limited,
+        "filtered_entity_count": len(effective_entity_ids) if entity_filter_applied else None,
+        "diagnostics": diagnostics,
+    }
 
 
 def _row_from_index_entry(entry: FitsIndexEntry, entity: Entity) -> dict[str, Any]:
@@ -271,6 +316,12 @@ def _row_from_index_entry(entry: FitsIndexEntry, entity: Entity) -> dict[str, An
         "snippet": _snippet(search_text or searchable, ""),
         "metadata": metadata,
         "text_content": search_text,
+        "risk_rating": metadata.get("risk_rating") or nested.get("risk_rating"),
+        "jurisdiction": metadata.get("jurisdiction") or nested.get("jurisdiction"),
+        "category": metadata.get("category") or nested.get("category"),
+        "document_type": metadata.get("document_type") or nested.get("document_type"),
+        "retention_until": metadata.get("retention_until") or nested.get("retention_until"),
+        "legal_hold_status": metadata.get("legal_hold_status") or nested.get("legal_hold_status"),
         "_searchable": searchable,
     }
 
@@ -278,8 +329,8 @@ def _row_from_index_entry(entry: FitsIndexEntry, entity: Entity) -> dict[str, An
 def _structured_row_match(row: dict[str, Any], structured: StructuredQuery) -> dict[str, Any]:
     metadata = row.get("metadata") or {}
     nested_metadata = metadata.get("metadata") if isinstance(metadata.get("metadata"), dict) else {}
-    category = _norm(metadata.get("category") or nested_metadata.get("category") or row.get("object_type"))
-    document_type = _norm(metadata.get("document_type") or nested_metadata.get("document_type") or row.get("object_type"))
+    category = _norm(metadata.get("category") or nested_metadata.get("category") or row.get("category") or row.get("object_type"))
+    document_type = _norm(metadata.get("document_type") or nested_metadata.get("document_type") or row.get("document_type") or row.get("object_type"))
     object_type = _norm(row.get("object_type"))
     filename = _norm(row.get("filename"))
     searchable = _text_norm(row.get("_searchable"))
