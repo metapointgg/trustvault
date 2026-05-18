@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api/trustvault_api_client.dart';
+import '../../shared/customer_selector_card.dart';
 import '../../shared/selected_customer.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -16,7 +18,7 @@ class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _entityController = TextEditingController();
 
   Future<Map<String, dynamic>>? _future;
-  bool _directFits = true;
+  bool _directFits = false;
   bool _entityManuallyEdited = false;
 
   @override
@@ -61,49 +63,56 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _showPreview(Map<String, dynamic> result) async {
-    final preview = await _apiClient.getEvidencePreview('${result['evidence_object_id']}');
+    final objectId = '${result['evidence_object_id']}';
+    final preview = await _apiClient.getEvidencePreview(objectId);
     if (!mounted) return;
 
     showDialog<void>(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text('${result['entity_display_name'] ?? result['filename'] ?? 'Evidence preview'}'),
+          title: Text('${preview['filename'] ?? result['filename'] ?? result['entity_display_name'] ?? 'Evidence preview'}'),
           content: SizedBox(
-            width: 760,
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _PreviewRow(label: 'Evidence object', value: '${preview['evidence_object_id']}'),
-                  _PreviewRow(label: 'Object type', value: '${preview['object_type']}'),
-                  _PreviewRow(label: 'Source system', value: '${preview['source_system']}'),
-                  _PreviewRow(label: 'Storage URI', value: '${preview['storage_uri']}'),
-                  _PreviewRow(label: 'SHA-256', value: '${preview['sha256']}'),
-                  _PreviewRow(label: 'Size', value: '${preview['size_bytes']} bytes'),
-                  const SizedBox(height: 16),
-                  Text('Text preview', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: SelectableText('${preview['text_preview'] ?? 'No text preview available.'}'),
-                  ),
-                ],
-              ),
+            width: 900,
+            height: 680,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    Chip(label: Text('Kind: ${preview['preview_kind'] ?? '-'}')),
+                    Chip(label: Text('Type: ${preview['content_type'] ?? '-'}')),
+                    Chip(label: Text('Size: ${preview['size_bytes'] ?? '-'} bytes')),
+                    Chip(label: Text('SHA-256: ${preview['sha256'] ?? '-'}')),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Expanded(child: _EvidencePreviewBody(apiClient: _apiClient, preview: preview)),
+              ],
             ),
           ),
           actions: [
+            TextButton.icon(
+              onPressed: () => _open(_apiClient.evidenceFileUrl(objectId)),
+              icon: const Icon(Icons.open_in_new),
+              label: const Text('Open'),
+            ),
+            TextButton.icon(
+              onPressed: () => _open(_apiClient.evidenceDownloadUrl(objectId)),
+              icon: const Icon(Icons.download),
+              label: const Text('Download'),
+            ),
             TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close')),
           ],
         );
       },
     );
+  }
+
+  Future<void> _open(String url) async {
+    await launchUrl(Uri.parse(url), webOnlyWindowName: '_blank');
   }
 
   @override
@@ -115,8 +124,16 @@ class _SearchScreenState extends State<SearchScreen> {
         children: [
           Text('Evidence search', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
-          const Text('Search directly inside the selected customer FITS archive, or use the rebuilt index for broader search.'),
-          const SizedBox(height: 24),
+          const Text('Search all customers through the rebuilt index, or search one selected customer directly inside its FITS archive.'),
+          const SizedBox(height: 16),
+          CustomerSelectorCard(
+            subtitle: 'Used only when direct FITS search is enabled, or when a customer external ID is supplied below.',
+            onChanged: (_) {
+              _entityManuallyEdited = false;
+              _syncEntityFromSelectedCustomer();
+            },
+          ),
+          const SizedBox(height: 16),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(20),
@@ -129,10 +146,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         flex: 2,
                         child: TextField(
                           controller: _queryController,
-                          decoration: const InputDecoration(
-                            labelText: 'Search query',
-                            border: OutlineInputBorder(),
-                          ),
+                          decoration: const InputDecoration(labelText: 'Search query', border: OutlineInputBorder()),
                           onSubmitted: (_) => _search(),
                         ),
                       ),
@@ -141,7 +155,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         child: TextField(
                           controller: _entityController,
                           decoration: const InputDecoration(
-                            labelText: 'Customer external ID',
+                            labelText: 'Optional customer external ID',
                             border: OutlineInputBorder(),
                           ),
                           onChanged: (_) => _entityManuallyEdited = true,
@@ -149,33 +163,16 @@ class _SearchScreenState extends State<SearchScreen> {
                         ),
                       ),
                       const SizedBox(width: 12),
-                      FilledButton.icon(
-                        onPressed: _search,
-                        icon: const Icon(Icons.search),
-                        label: const Text('Search'),
-                      ),
+                      FilledButton.icon(onPressed: _search, icon: const Icon(Icons.search), label: const Text('Search')),
                     ],
                   ),
                   const SizedBox(height: 12),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Direct FITS search'),
-                    subtitle: const Text('When enabled, search reads the selected customer FITS archive directly.'),
+                    title: const Text('Direct FITS search for selected customer'),
+                    subtitle: const Text('Off: archive/index search. On: read the selected customer FITS file directly.'),
                     value: _directFits,
-                    onChanged: (value) {
-                      setState(() {
-                        _directFits = value;
-                      });
-                    },
-                  ),
-                  TextButton.icon(
-                    onPressed: () {
-                      _entityManuallyEdited = false;
-                      _syncEntityFromSelectedCustomer();
-                      setState(() {});
-                    },
-                    icon: const Icon(Icons.link),
-                    label: const Text('Use selected customer'),
+                    onChanged: (value) => setState(() => _directFits = value),
                   ),
                 ],
               ),
@@ -188,20 +185,11 @@ class _SearchScreenState extends State<SearchScreen> {
                 : FutureBuilder<Map<String, dynamic>>(
                     future: _future,
                     builder: (context, snapshot) {
-                      if (snapshot.connectionState != ConnectionState.done) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      if (snapshot.hasError) {
-                        return Center(child: Text('Unable to search evidence: ${snapshot.error}'));
-                      }
-
+                      if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
+                      if (snapshot.hasError) return Center(child: Text('Unable to search evidence: ${snapshot.error}'));
                       final response = snapshot.data ?? <String, dynamic>{};
                       final results = (response['results'] as List<dynamic>? ?? <dynamic>[]).cast<dynamic>();
-
-                      if (results.isEmpty) {
-                        return Center(child: Text('No results for "${response['query'] ?? _queryController.text}".'));
-                      }
-
+                      if (results.isEmpty) return Center(child: Text('No results for "${response['query'] ?? _queryController.text}".'));
                       return ListView.separated(
                         itemCount: results.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 12),
@@ -209,10 +197,10 @@ class _SearchScreenState extends State<SearchScreen> {
                           final result = results[index] as Map<String, dynamic>;
                           return Card(
                             child: ListTile(
-                              leading: const Icon(Icons.manage_search_outlined),
+                              leading: const Icon(Icons.article_outlined),
                               title: Text('${result['filename'] ?? result['entity_display_name'] ?? 'Evidence'}'),
                               subtitle: Text(
-                                'External ID: ${result['entity_external_id']}\n'
+                                'Customer: ${result['entity_external_id']}\n'
                                 'Object: ${result['object_type']} from ${result['source_system']}\n'
                                 'HDU: ${result['hdu_name'] ?? '-'}\n'
                                 '${result['snippet'] ?? result['storage_uri'] ?? ''}',
@@ -235,21 +223,50 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 }
 
-class _PreviewRow extends StatelessWidget {
-  const _PreviewRow({required this.label, required this.value});
+class _EvidencePreviewBody extends StatelessWidget {
+  const _EvidencePreviewBody({required this.apiClient, required this.preview});
 
-  final String label;
-  final String value;
+  final TrustVaultApiClient apiClient;
+  final Map<String, dynamic> preview;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    final kind = '${preview['preview_kind'] ?? 'binary'}';
+    final objectId = '${preview['evidence_object_id']}';
+    if (kind == 'image') {
+      return InteractiveViewer(
+        child: Center(child: Image.network(apiClient.evidenceFileUrl(objectId), fit: BoxFit.contain)),
+      );
+    }
+    if (kind == 'pdf') {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.picture_as_pdf_outlined, size: 64),
+            const SizedBox(height: 12),
+            const Text('PDF preview opens in a new browser tab.'),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: () => launchUrl(Uri.parse(apiClient.evidenceFileUrl(objectId)), webOnlyWindowName: '_blank'),
+              icon: const Icon(Icons.open_in_new),
+              label: const Text('Open PDF'),
+            ),
+          ],
+        ),
+      );
+    }
+    final text = preview['safe_preview'] ?? preview['text_preview'];
+    if (kind == 'eml' || kind == 'text') {
+      return SingleChildScrollView(child: SelectableText('$text'));
+    }
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(width: 130, child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700))),
-          Expanded(child: SelectableText(value)),
+          const Icon(Icons.insert_drive_file_outlined, size: 64),
+          const SizedBox(height: 12),
+          Text('No inline preview is available for ${preview['content_type'] ?? 'this file type'}.'),
         ],
       ),
     );
