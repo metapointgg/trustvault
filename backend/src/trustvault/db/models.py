@@ -171,11 +171,15 @@ class User(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     external_subject: Mapped[str] = mapped_column(String(300), unique=True, nullable=False)
-    email: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(300), unique=True, nullable=True)
     display_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="active")
+    password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    roles: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     metadata_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class Job(Base):
