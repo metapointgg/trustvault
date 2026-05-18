@@ -8,10 +8,10 @@ from trustvault.ai.lm_studio import LmStudioAiProvider
 from trustvault.audit.events import AI_SUMMARY_GENERATED, SEARCH_EXECUTED
 from trustvault.audit.logger import AuditLogger
 from trustvault.api.dependencies import get_audit_logger, get_database
+from trustvault.core.app_settings import AppSettingsService
 from trustvault.core.feature_services import TrustVaultFeatureService
 from trustvault.core.fits_reader import FitsContainerReader
 from trustvault.core.query_interpreter import StructuredQuery, TrustVaultQueryInterpreter
-from trustvault.settings import get_settings
 
 router = APIRouter(prefix="/api/v1/query", tags=["query"])
 
@@ -43,11 +43,14 @@ SCENARIOS: list[dict[str, Any]] = [
 ]
 
 
-def _ai_enabled_for_mode(mode: str) -> bool:
-    settings = get_settings()
+def _settings_values(db: Session) -> dict[str, Any]:
+    return AppSettingsService(db).effective_values()
+
+
+def _ai_enabled_for_mode(mode: str, values: dict[str, Any]) -> bool:
     if mode == "deterministic":
         return False
-    return settings.ai_provider.lower() in {"lm_studio", "lmstudio"}
+    return str(values.get("ai_provider", "none")).lower() in {"lm_studio", "lmstudio"}
 
 
 def _normalise_ai_payload(ai_payload: dict[str, Any], deterministic: StructuredQuery) -> StructuredQuery:
@@ -95,23 +98,24 @@ def _normalise_ai_payload(ai_payload: dict[str, Any], deterministic: StructuredQ
     )
 
 
-def _interpret(request: InterpretRequest | ExecuteRequest) -> tuple[StructuredQuery, dict[str, Any]]:
+def _interpret(request: InterpretRequest | ExecuteRequest, db: Session) -> tuple[StructuredQuery, dict[str, Any]]:
     deterministic = TrustVaultQueryInterpreter().interpret(request.query, entity_external_id=request.entity_external_id)
+    values = _settings_values(db)
     meta: dict[str, Any] = {
         "mode": request.mode,
         "deterministic_query": deterministic.to_dict(),
         "ai_used": False,
-        "ai_provider": None,
+        "ai_provider": values.get("ai_provider"),
         "ai_model": None,
+        "ai_base_url": values.get("lm_studio_base_url"),
         "ai_warnings": [],
     }
-    if not _ai_enabled_for_mode(request.mode):
+    if not _ai_enabled_for_mode(request.mode, values):
         if request.mode == "ai":
-            meta["ai_warnings"].append("AI mode requested but TRUSTVAULT_AI_PROVIDER is not lm_studio; deterministic interpretation used")
+            meta["ai_warnings"].append("AI mode requested but effective ai_provider is not lm_studio; deterministic interpretation used")
         return deterministic, meta
 
-    settings = get_settings()
-    ai = LmStudioAiProvider(settings.lm_studio_base_url, model=settings.lm_studio_query_model)
+    ai = LmStudioAiProvider(str(values.get("lm_studio_base_url") or "http://localhost:1234"), model=str(values.get("lm_studio_query_model") or values.get("lm_studio_model") or ""))
     ai_result = ai.interpret_query(request.query, deterministic.to_dict(), context={"entity_external_id": request.entity_external_id})
     meta.update({
         "ai_used": not ai_result.warnings,
@@ -125,18 +129,19 @@ def _interpret(request: InterpretRequest | ExecuteRequest) -> tuple[StructuredQu
     return _normalise_ai_payload(ai_result.data, deterministic), meta
 
 
-def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]], meta: dict[str, Any], execution_source: str, audit_logger: AuditLogger) -> dict[str, Any] | None:
+def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]], db: Session, execution_source: str, audit_logger: AuditLogger) -> dict[str, Any] | None:
     if not request.include_ai_summary:
         return None
-    settings = get_settings()
-    if settings.ai_provider.lower() not in {"lm_studio", "lmstudio"}:
+    values = _settings_values(db)
+    if str(values.get("ai_provider", "none")).lower() not in {"lm_studio", "lmstudio"}:
         return {
             "available": False,
-            "warning": "AI summary requested but TRUSTVAULT_AI_PROVIDER is not lm_studio.",
+            "warning": "AI summary requested but effective ai_provider is not lm_studio.",
+            "effective_ai_provider": values.get("ai_provider"),
         }
     if not rows:
         return {"available": False, "warning": "No evidence rows were returned to summarise."}
-    ai = LmStudioAiProvider(settings.lm_studio_base_url, model=settings.lm_studio_model)
+    ai = LmStudioAiProvider(str(values.get("lm_studio_base_url") or "http://localhost:1234"), model=str(values.get("lm_studio_model") or values.get("lm_studio_query_model") or ""))
     evidence_payload = [
         {
             "entity_external_id": row.get("entity_external_id"),
@@ -183,8 +188,8 @@ def query_scenarios() -> dict[str, Any]:
 
 
 @router.post("/interpret")
-def interpret_query(request: InterpretRequest, audit_logger: AuditLogger = Depends(get_audit_logger)) -> dict[str, Any]:
-    structured, meta = _interpret(request)
+def interpret_query(request: InterpretRequest, db: Session = Depends(get_database), audit_logger: AuditLogger = Depends(get_audit_logger)) -> dict[str, Any]:
+    structured, meta = _interpret(request, db)
     audit_logger.log(
         AI_SUMMARY_GENERATED if meta["ai_used"] else SEARCH_EXECUTED,
         raw_query=request.query,
@@ -205,7 +210,7 @@ def execute_query(
 ) -> dict[str, Any]:
     service = TrustVaultFeatureService(db)
     reader = FitsContainerReader(db)
-    structured, meta = _interpret(request)
+    structured, meta = _interpret(request, db)
     sq = structured.to_dict()
     terms = structured.search_terms or [request.query]
     search_query = " ".join(terms)
@@ -235,7 +240,7 @@ def execute_query(
             ai_model=meta.get("ai_model"),
             metadata={"query_mode": structured.execute_with, "interpretation": meta},
         )
-        summary = _summarise_if_requested(request, result.get("results", []) if isinstance(result.get("results"), list) else [result], meta, execution_source, audit_logger)
+        summary = _summarise_if_requested(request, result.get("results", []) if isinstance(result.get("results"), list) else [result], db, execution_source, audit_logger)
         return {"structured_query": sq, "interpretation": meta, "execution_source": execution_source, "result": result, "ai_summary": summary}
 
     if structured.entity_external_id:
@@ -269,5 +274,5 @@ def execute_query(
         ai_model=meta.get("ai_model"),
         metadata={"query_mode": structured.execute_with, "interpretation": meta},
     )
-    summary = _summarise_if_requested(request, rows, meta, execution_source, audit_logger)
+    summary = _summarise_if_requested(request, rows, db, execution_source, audit_logger)
     return {"structured_query": sq, "interpretation": meta, "execution_source": execution_source, "result": result, "ai_summary": summary}
