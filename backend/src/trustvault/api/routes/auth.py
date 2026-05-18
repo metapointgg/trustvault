@@ -1,7 +1,8 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel, EmailStr, Field
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from trustvault.api.dependencies import get_current_user, get_database, require_admin
@@ -12,12 +13,12 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str = Field(min_length=3)
     verifier: str = Field(min_length=1)
 
 
 class CreateUserRequest(BaseModel):
-    email: EmailStr
+    email: str = Field(min_length=3)
     display_name: str = Field(min_length=1)
     roles: list[str] = Field(default_factory=list)
     status: str = "active"
@@ -29,9 +30,16 @@ class UpdateUserRequest(BaseModel):
     status: str | None = None
 
 
+def _normalise_email(email: str) -> str:
+    value = email.lower().strip()
+    if "@" not in value:
+        raise HTTPException(status_code=400, detail="Email address is invalid")
+    return value
+
+
 @router.post("/login")
 def login(request: LoginRequest, db: Session = Depends(get_database)) -> dict[str, Any]:
-    return LocalAuthService(db).login(request.email, request.verifier)
+    return LocalAuthService(db).login(_normalise_email(request.email), request.verifier)
 
 
 @router.get("/me")
@@ -52,9 +60,13 @@ def list_users(_: User = Depends(require_admin), db: Session = Depends(get_datab
 
 @router.post("/users")
 def create_user(request: CreateUserRequest, _: User = Depends(require_admin), db: Session = Depends(get_database)) -> dict[str, Any]:
+    email = _normalise_email(request.email)
+    existing = db.scalars(select(User).where(User.email == email)).first()
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="User email already exists")
     user = User(
-        external_subject=f"local:{request.email.lower().strip()}",
-        email=request.email.lower().strip(),
+        external_subject=f"local:{email}",
+        email=email,
         display_name=request.display_name,
         status=request.status,
         roles=LocalAuthService(db)._normalise_roles(request.roles),
