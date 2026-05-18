@@ -65,6 +65,28 @@ class TrustVaultApiClient {
     return response.data ?? <String, dynamic>{};
   }
 
+  Future<Map<String, dynamic>> getSettings() async => _getMap('/api/v1/settings');
+
+  Future<Map<String, dynamic>> updateSettings(Map<String, dynamic> updates) async {
+    final response = await _dio.patch<Map<String, dynamic>>('/api/v1/settings', data: <String, dynamic>{'updates': updates});
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> getAutoIngestionStatus() async => _getMap('/api/v1/auto-ingestion/status');
+
+  Future<Map<String, dynamic>> scanAutoIngestionFolder() async {
+    final response = await _dio.post<Map<String, dynamic>>('/api/v1/auto-ingestion/scan');
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> queueAutoIngestionScan() async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/jobs',
+      data: <String, dynamic>{'job_type': 'scan_drop_folder', 'payload': <String, dynamic>{'source': 'flutter_settings'}, 'created_by_user_id': 'local-user'},
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
   Future<Map<String, dynamic>> getHealth() async => _getMap('/health');
   Future<Map<String, dynamic>> getApiHealth() async => _getMap('/api/v1/health');
   Future<Map<String, dynamic>> getDashboardSummary() async => _getMap('/api/v1/dashboard/summary');
