@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/trustvault_api_client.dart';
+import '../../shared/customer_selector_card.dart';
 import '../../shared/selected_customer.dart';
 
 class ExtractionScreen extends StatefulWidget {
@@ -51,7 +52,13 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _Header(title: 'Extraction', subtitle: 'OCR/search text, extracted fields and extraction events from the selected customer FITS archive.', onRefresh: _load),
+          _Header(title: 'Extraction', subtitle: 'OCR/search text, extracted fields and extraction events read from one customer FITS archive.', onRefresh: _load),
+          const SizedBox(height: 16),
+          CustomerSelectorCard(
+            title: 'Customer extraction context',
+            subtitle: 'Extraction data is read from this customer current FITS archive.',
+            onChanged: (_) => _load(),
+          ),
           const SizedBox(height: 24),
           Expanded(
             child: _future == null
@@ -95,30 +102,21 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
                                             children: [
                                               Row(
                                                 children: [
-                                                  Expanded(
-                                                    child: Text('${row['filename'] ?? row['object_id'] ?? 'Evidence'}', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-                                                  ),
+                                                  Expanded(child: Text('${row['filename'] ?? row['object_id'] ?? 'Evidence'}', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700))),
                                                   _ConfidencePill(confidence: confidence),
                                                 ],
                                               ),
                                               const SizedBox(height: 8),
-                                              Wrap(
-                                                spacing: 8,
-                                                runSpacing: 8,
-                                                children: [
-                                                  Chip(label: Text('Method: ${row['extraction_method'] ?? '-'}')),
-                                                  Chip(label: Text('Characters: ${row['character_count'] ?? '-'}')),
-                                                  Chip(label: Text('Extracted: ${row['extracted_at'] ?? '-'}')),
-                                                ],
-                                              ),
+                                              Wrap(spacing: 8, runSpacing: 8, children: [
+                                                Chip(label: Text('Method: ${row['extraction_method'] ?? '-'}')),
+                                                Chip(label: Text('Characters: ${row['character_count'] ?? '-'}')),
+                                                Chip(label: Text('Extracted: ${row['extracted_at'] ?? '-'}')),
+                                              ]),
                                               const SizedBox(height: 12),
                                               Container(
                                                 width: double.infinity,
                                                 padding: const EdgeInsets.all(12),
-                                                decoration: BoxDecoration(
-                                                  border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-                                                  borderRadius: BorderRadius.circular(12),
-                                                ),
+                                                decoration: BoxDecoration(border: Border.all(color: Theme.of(context).colorScheme.outlineVariant), borderRadius: BorderRadius.circular(12)),
                                                 child: SelectableText(_preview('${row['extracted_text'] ?? ''}')),
                                               ),
                                             ],
@@ -138,10 +136,7 @@ class _ExtractionScreenState extends State<ExtractionScreen> {
     );
   }
 
-  String _preview(String text) {
-    if (text.length <= 800) return text;
-    return '${text.substring(0, 800)}...';
-  }
+  String _preview(String text) => text.length <= 800 ? text : '${text.substring(0, 800)}...';
 }
 
 class _Header extends StatelessWidget {
@@ -156,16 +151,11 @@ class _Header extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 8),
-              Text(subtitle),
-              const SizedBox(height: 8),
-              Text('Customer: ${SelectedCustomerController.displayLabel}', style: Theme.of(context).textTheme.titleSmall),
-            ],
-          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            Text(subtitle),
+          ]),
         ),
         OutlinedButton.icon(onPressed: onRefresh, icon: const Icon(Icons.refresh), label: const Text('Refresh')),
       ],
@@ -185,10 +175,7 @@ class _ConfidencePill extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
-        color: good ? scheme.primaryContainer : scheme.errorContainer,
-      ),
+      decoration: BoxDecoration(borderRadius: BorderRadius.circular(999), color: good ? scheme.primaryContainer : scheme.errorContainer),
       child: Text(value == null ? 'Confidence: -' : 'Confidence: ${(value * 100).toStringAsFixed(0)}%', style: TextStyle(color: good ? scheme.onPrimaryContainer : scheme.onErrorContainer)),
     );
   }
