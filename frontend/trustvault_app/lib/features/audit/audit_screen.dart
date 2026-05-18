@@ -37,12 +37,44 @@ class _AuditScreenState extends State<AuditScreen> {
     return rows.where((event) => jsonEncode(event).toLowerCase().contains(_filter)).toList();
   }
 
+  String _userLabel(Map<String, dynamic> event) {
+    final metadata = event['metadata_json'] as Map<String, dynamic>? ?? <String, dynamic>{};
+    return '${metadata['user_display_name'] ?? metadata['user_email'] ?? event['user_name'] ?? event['user_id'] ?? '-'}';
+  }
+
+  String _entityLabel(Map<String, dynamic> event) {
+    final metadata = event['metadata_json'] as Map<String, dynamic>? ?? <String, dynamic>{};
+    final externalIds = metadata['entity_external_ids'];
+    if (externalIds is List && externalIds.isNotEmpty) return externalIds.take(3).join(', ');
+    final entityIds = event['entity_ids'];
+    if (entityIds is List && entityIds.isNotEmpty) return entityIds.take(2).join(', ');
+    return '-';
+  }
+
+  String _objectLabel(Map<String, dynamic> event) {
+    final objectIds = event['object_ids'];
+    if (objectIds is List && objectIds.isNotEmpty) return objectIds.take(2).join(', ');
+    final metadata = event['metadata_json'] as Map<String, dynamic>? ?? <String, dynamic>{};
+    return '${metadata['object_id'] ?? '-'}';
+  }
+
   void _exportCsv(List<Map<String, dynamic>> rows) {
-    final columns = <String>['created_at', 'event_type', 'status', 'actor_user_id', 'entity_id', 'object_id', 'correlation_id'];
+    final columns = <String>['created_at', 'event_type', 'status', 'user', 'entities', 'objects', 'result_count', 'search_source', 'correlation_id'];
     String escape(Object? value) => '"${'$value'.replaceAll('"', '""')}"';
     final csv = StringBuffer()..writeln(columns.map(escape).join(','));
     for (final row in rows) {
-      csv.writeln(columns.map((column) => escape(row[column] ?? '')).join(','));
+      final values = <String, Object?>{
+        'created_at': row['created_at'],
+        'event_type': row['event_type'],
+        'status': row['status'],
+        'user': _userLabel(row),
+        'entities': _entityLabel(row),
+        'objects': _objectLabel(row),
+        'result_count': row['result_count'],
+        'search_source': row['search_source'],
+        'correlation_id': row['correlation_id'],
+      };
+      csv.writeln(columns.map((column) => escape(values[column] ?? '')).join(','));
     }
     final blob = html.Blob(<dynamic>[csv.toString()], 'text/csv');
     final url = html.Url.createObjectUrlFromBlob(blob);
@@ -97,10 +129,7 @@ class _AuditScreenState extends State<AuditScreen> {
             ],
           ),
           const SizedBox(height: 16),
-          TextField(
-            controller: _filterController,
-            decoration: const InputDecoration(border: OutlineInputBorder(), prefixIcon: Icon(Icons.search), labelText: 'Search by time, task, user, entity, object or status'),
-          ),
+          TextField(controller: _filterController, decoration: const InputDecoration(border: OutlineInputBorder(), prefixIcon: Icon(Icons.search), labelText: 'Search by time, task, user, entity, object or status')),
           const SizedBox(height: 16),
           Expanded(
             child: FutureBuilder<List<dynamic>>(
@@ -113,10 +142,7 @@ class _AuditScreenState extends State<AuditScreen> {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Wrap(spacing: 8, runSpacing: 8, children: [
-                      Chip(label: Text('Rows: ${events.length}')),
-                      OutlinedButton.icon(onPressed: () => _exportCsv(events), icon: const Icon(Icons.download), label: const Text('Export CSV')),
-                    ]),
+                    Wrap(spacing: 8, runSpacing: 8, children: [Chip(label: Text('Rows: ${events.length}')), OutlinedButton.icon(onPressed: () => _exportCsv(events), icon: const Icon(Icons.download), label: const Text('Export CSV'))]),
                     const SizedBox(height: 12),
                     Expanded(
                       child: Card(
@@ -131,18 +157,22 @@ class _AuditScreenState extends State<AuditScreen> {
                                 DataColumn(label: Text('User')),
                                 DataColumn(label: Text('Entity')),
                                 DataColumn(label: Text('Object')),
+                                DataColumn(label: Text('Results')),
+                                DataColumn(label: Text('Source')),
                                 DataColumn(label: Text('Correlation')),
                                 DataColumn(label: Text('Actions')),
                               ],
                               rows: events.map((event) {
                                 return DataRow(cells: [
                                   DataCell(Text('${event['created_at'] ?? '-'}')),
-                                  DataCell(SizedBox(width: 260, child: Text('${event['event_type'] ?? '-'}', overflow: TextOverflow.ellipsis))),
+                                  DataCell(SizedBox(width: 240, child: Text('${event['event_type'] ?? '-'}', overflow: TextOverflow.ellipsis))),
                                   DataCell(Text('${event['status'] ?? '-'}')),
-                                  DataCell(SizedBox(width: 180, child: Text('${event['actor_user_id'] ?? event['user_id'] ?? '-'}', overflow: TextOverflow.ellipsis))),
-                                  DataCell(SizedBox(width: 180, child: Text('${event['entity_id'] ?? '-'}', overflow: TextOverflow.ellipsis))),
-                                  DataCell(SizedBox(width: 180, child: Text('${event['object_id'] ?? '-'}', overflow: TextOverflow.ellipsis))),
-                                  DataCell(SizedBox(width: 240, child: Text('${event['correlation_id'] ?? '-'}', overflow: TextOverflow.ellipsis))),
+                                  DataCell(SizedBox(width: 220, child: Text(_userLabel(event), overflow: TextOverflow.ellipsis))),
+                                  DataCell(SizedBox(width: 240, child: Text(_entityLabel(event), overflow: TextOverflow.ellipsis))),
+                                  DataCell(SizedBox(width: 240, child: Text(_objectLabel(event), overflow: TextOverflow.ellipsis))),
+                                  DataCell(Text('${event['result_count'] ?? '-'}')),
+                                  DataCell(Text('${event['search_source'] ?? '-'}')),
+                                  DataCell(SizedBox(width: 220, child: Text('${event['correlation_id'] ?? '-'}', overflow: TextOverflow.ellipsis))),
                                   DataCell(TextButton.icon(onPressed: () => _showEvent(event), icon: const Icon(Icons.visibility_outlined), label: const Text('View'))),
                                 ]);
                               }).toList(),
