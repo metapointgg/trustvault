@@ -78,9 +78,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       });
     } catch (error) {
       if (!mounted) return;
-      setState(() {
-        _error = '$error';
-      });
+      setState(() => _error = '$error');
     }
   }
 
@@ -92,87 +90,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final response = await _apiClient.queueAutoIngestionScan();
       if (!mounted) return;
-      setState(() {
-        _message = 'Queued automatic ingestion scan job ${response['id'] ?? ''}.';
-      });
+      setState(() => _message = 'Queued automatic ingestion scan job ${response['id'] ?? ''}.');
     } catch (error) {
       if (!mounted) return;
-      setState(() {
-        _error = '$error';
-      });
+      setState(() => _error = '$error');
     }
   }
 
   void _recordChange(String key, dynamic value) {
-    setState(() {
-      _pendingUpdates[key] = value;
-    });
+    setState(() => _pendingUpdates[key] = value);
   }
 
   @override
   Widget build(BuildContext context) {
     final isAdmin = AuthController.instance.isAdmin;
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Settings', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 8),
-                    const Text('Manage safe runtime configuration. Secrets remain environment/secret-manager controlled and are not editable here.'),
-                  ],
+    return Scrollbar(
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Settings', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 8),
+                      const Text('Manage safe runtime configuration. Secrets remain environment/secret-manager controlled and are not editable here.'),
+                    ],
+                  ),
                 ),
-              ),
-              OutlinedButton.icon(onPressed: _refresh, icon: const Icon(Icons.refresh), label: const Text('Refresh')),
-              const SizedBox(width: 12),
-              FilledButton.icon(
-                onPressed: !isAdmin || _saving || _pendingUpdates.isEmpty ? null : _save,
-                icon: _saving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save_outlined),
-                label: Text(_pendingUpdates.isEmpty ? 'No changes' : 'Save ${_pendingUpdates.length} change(s)'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          if (_message != null) _Banner(message: _message!, positive: true),
-          if (_error != null) _Banner(message: _error!, positive: false),
-          if (!isAdmin) const _Banner(message: 'Admin role required to update settings. Current values are read-only.', positive: false),
-          const SizedBox(height: 16),
-          _AutoIngestionStatusCard(
-            future: _autoIngestionFuture,
-            onScanNow: isAdmin ? _scanNow : null,
-            onQueueScan: isAdmin ? _queueScan : null,
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: FutureBuilder<Map<String, dynamic>>(
+                OutlinedButton.icon(onPressed: _refresh, icon: const Icon(Icons.refresh), label: const Text('Refresh')),
+                const SizedBox(width: 12),
+                FilledButton.icon(
+                  onPressed: !isAdmin || _saving || _pendingUpdates.isEmpty ? null : _save,
+                  icon: _saving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save_outlined),
+                  label: Text(_pendingUpdates.isEmpty ? 'No changes' : 'Save ${_pendingUpdates.length} change(s)'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (_message != null) _Banner(message: _message!, positive: true),
+            if (_error != null) _Banner(message: _error!, positive: false),
+            if (!isAdmin) const _Banner(message: 'Admin role required to update settings. Current values are read-only.', positive: false),
+            const SizedBox(height: 16),
+            _AutoIngestionStatusCard(future: _autoIngestionFuture, onScanNow: isAdmin ? _scanNow : null, onQueueScan: isAdmin ? _queueScan : null),
+            const SizedBox(height: 16),
+            FutureBuilder<Map<String, dynamic>>(
               future: _settingsFuture,
               builder: (context, snapshot) {
-                if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
+                if (snapshot.connectionState != ConnectionState.done) return const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()));
                 if (snapshot.hasError) return Center(child: Text('Unable to load settings: ${snapshot.error}'));
                 final categories = (snapshot.data?['categories'] as Map<String, dynamic>? ?? <String, dynamic>{});
                 if (categories.isEmpty) return const Center(child: Text('No settings returned by API.'));
-                return ListView(
+                return Column(
                   children: categories.entries.map((entry) {
                     final items = (entry.value as List<dynamic>? ?? <dynamic>[]).cast<Map<String, dynamic>>();
-                    return _SettingsCategoryCard(
-                      category: entry.key,
-                      items: items,
-                      pendingUpdates: _pendingUpdates,
-                      editable: isAdmin,
-                      onChanged: _recordChange,
-                    );
+                    return _SettingsCategoryCard(category: entry.key, items: items, pendingUpdates: _pendingUpdates, editable: isAdmin, onChanged: _recordChange);
                   }).toList(),
                 );
               },
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -304,9 +287,7 @@ class _SettingRowState extends State<_SettingRow> {
   void didUpdateWidget(covariant _SettingRow oldWidget) {
     super.didUpdateWidget(oldWidget);
     final nextText = '${widget.pendingValue ?? widget.item['value'] ?? ''}';
-    if (_controller.text != nextText && widget.pendingValue == null) {
-      _controller.text = nextText;
-    }
+    if (_controller.text != nextText && widget.pendingValue == null) _controller.text = nextText;
   }
 
   @override
@@ -351,21 +332,12 @@ class _SettingRowState extends State<_SettingRow> {
   Widget _editorFor(String keyName, String valueType, bool canEdit) {
     if (valueType == 'bool') {
       final current = widget.pendingValue is bool ? widget.pendingValue as bool : '${widget.item['value']}'.toLowerCase() == 'true';
-      return Align(
-        alignment: Alignment.centerLeft,
-        child: Switch(
-          value: current,
-          onChanged: canEdit ? (value) => widget.onChanged(keyName, value) : null,
-        ),
-      );
+      return Align(alignment: Alignment.centerLeft, child: Switch(value: current, onChanged: canEdit ? (value) => widget.onChanged(keyName, value) : null));
     }
     return TextField(
       controller: _controller,
       enabled: canEdit,
-      decoration: InputDecoration(
-        border: const OutlineInputBorder(),
-        labelText: valueType == 'int' ? 'Integer value' : 'Value',
-      ),
+      decoration: InputDecoration(border: const OutlineInputBorder(), labelText: valueType == 'int' ? 'Integer value' : 'Value'),
       keyboardType: valueType == 'int' ? TextInputType.number : TextInputType.text,
       onChanged: (value) => widget.onChanged(keyName, valueType == 'int' ? int.tryParse(value) ?? value : value),
     );
@@ -385,10 +357,7 @@ class _Banner extends StatelessWidget {
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: positive ? scheme.primaryContainer : scheme.errorContainer,
-        borderRadius: BorderRadius.circular(12),
-      ),
+      decoration: BoxDecoration(color: positive ? scheme.primaryContainer : scheme.errorContainer, borderRadius: BorderRadius.circular(12)),
       child: Text(message, style: TextStyle(color: positive ? scheme.onPrimaryContainer : scheme.onErrorContainer)),
     );
   }
