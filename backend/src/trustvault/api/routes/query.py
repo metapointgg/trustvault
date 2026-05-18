@@ -75,7 +75,26 @@ def _ai_enabled_for_mode(mode: str, values: dict[str, Any]) -> bool:
 
 
 def _auto_should_skip_ai_interpretation(structured: StructuredQuery) -> bool:
-    return structured.capability in DETERMINISTIC_AUTO_CAPABILITIES
+    if structured.capability in DETERMINISTIC_AUTO_CAPABILITIES:
+        return True
+    if structured.capability != "evidence_search":
+        return False
+
+    raw_query = _text_norm(structured.raw_query)
+    terms = [_text_norm(term) for term in (structured.search_terms or []) if term]
+    terms_are_only_raw_query = len(terms) == 1 and terms[0] == raw_query
+
+    has_entity_scope = bool(structured.entity_external_id)
+    has_structured_filters = bool(
+        structured.risk_rating
+        or structured.jurisdiction
+        or structured.snapshot_id
+        or structured.document_types
+        or structured.categories
+    )
+    has_normalised_terms = bool(terms) and not terms_are_only_raw_query
+
+    return has_entity_scope or has_structured_filters or has_normalised_terms
 
 
 def _norm(value: Any) -> str:
