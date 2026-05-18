@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -157,11 +158,34 @@ def _interpret(request: InterpretRequest | ExecuteRequest, db: Session) -> tuple
 def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]], db: Session, execution_source: str, audit_logger: AuditLogger) -> dict[str, Any] | None:
     if not request.include_ai_summary:
         return None
+    if not rows:
+        return {"available": False, "warning": "No rows were returned to summarise."}
+    if execution_source == "entity_metadata":
+        summary = _deterministic_entity_summary(rows)
+        audit_logger.log(
+            AI_SUMMARY_GENERATED,
+            raw_query=request.query,
+            result_count=len(rows),
+            search_source=execution_source,
+            ai_used=False,
+            ai_provider="trustvault",
+            ai_model="deterministic_entity_discovery_summary",
+            metadata={"operation": "deterministic_entity_discovery_summary", "entity_count": len(rows)},
+        )
+        return {
+            "available": True,
+            "summary": summary,
+            "provider": "trustvault",
+            "model": "deterministic_entity_discovery_summary",
+            "warnings": [],
+            "evidence_row_count": len(rows),
+            "source_of_truth_notice": "The preserved FITS evidence and payload hashes remain the source of truth.",
+            "ai_used_for_summary": False,
+        }
+
     values = _settings_values(db)
     if str(values.get("ai_provider", "none")).lower() not in {"lm_studio", "lmstudio"}:
         return {"available": False, "warning": "AI summary requested but effective ai_provider is not lm_studio.", "effective_ai_provider": values.get("ai_provider")}
-    if not rows:
-        return {"available": False, "warning": "No evidence rows were returned to summarise."}
     summary_model = _lm_studio_model(values, purpose="summary")
     ai = LmStudioAiProvider(str(values.get("lm_studio_base_url") or "http://localhost:1234"), model=summary_model)
     evidence_payload = [_safe_summary_row(row) for row in rows[:12]]
@@ -184,7 +208,34 @@ def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]],
         "warnings": ai_result.warnings,
         "evidence_row_count": min(len(rows), 12),
         "source_of_truth_notice": "The preserved FITS evidence and payload hashes remain the source of truth.",
+        "ai_used_for_summary": not ai_result.warnings,
     }
+
+
+def _deterministic_entity_summary(rows: list[dict[str, Any]]) -> str:
+    risk_counts = Counter(str(row.get("risk_rating") or "Unknown") for row in rows)
+    jurisdiction_counts = Counter(str(row.get("jurisdiction") or "Unknown") for row in rows)
+    total_evidence_objects = sum(int(row.get("evidence_object_count") or 0) for row in rows)
+    lines = [
+        f"Returned {len(rows)} customer entit{'y' if len(rows) == 1 else 'ies'}.",
+        "Risk ratings: " + ", ".join(f"{key}: {value}" for key, value in sorted(risk_counts.items())),
+        "Jurisdictions: " + ", ".join(f"{key}: {value}" for key, value in sorted(jurisdiction_counts.items())),
+        f"Total indexed evidence objects across returned customers: {total_evidence_objects}.",
+        "",
+        "Customers:",
+    ]
+    for row in rows:
+        lines.append(
+            "- "
+            f"{row.get('entity_external_id') or row.get('external_id')}: "
+            f"{row.get('entity_display_name') or row.get('display_name') or '-'}; "
+            f"risk={row.get('risk_rating') or '-'}; "
+            f"jurisdiction={row.get('jurisdiction') or '-'}; "
+            f"evidence_objects={row.get('evidence_object_count') or 0}; "
+            f"fits_current={bool(row.get('has_current_fits_container'))}"
+        )
+    lines.extend(["", "The preserved FITS evidence and payload hashes remain the source of truth."])
+    return "\n".join(lines)
 
 
 def _safe_summary_row(row: dict[str, Any]) -> dict[str, Any]:
