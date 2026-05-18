@@ -1,4 +1,5 @@
 import json
+import urllib.error
 import urllib.request
 from typing import Any
 
@@ -55,15 +56,8 @@ class LmStudioAiProvider(AiProvider):
                                 "execute_with": ["fits_index", "direct_fits"],
                                 "risk_rating": ["High", "Medium", "Low"],
                                 "jurisdiction": ["Guernsey", "Jersey", "United Kingdom", "Isle of Man", "Other"],
-                                "categories": [
-                                    "customer_documents", "identity", "proof_of_address", "source_of_wealth",
-                                    "source_of_funds", "cdd_review", "communications", "screening",
-                                ],
-                                "document_types": [
-                                    "passport", "identity_document", "proof_of_address", "source_of_wealth",
-                                    "source_of_funds", "cdd_risk_review", "screening", "email",
-                                    "account_opening_application",
-                                ],
+                                "categories": ["customer_documents", "identity", "proof_of_address", "source_of_wealth", "source_of_funds", "cdd_review", "communications", "screening"],
+                                "document_types": ["passport", "identity_document", "proof_of_address", "source_of_wealth", "source_of_funds", "cdd_risk_review", "screening", "email", "account_opening_application"],
                             },
                             "hard_rules": [
                                 "Onboarding is a lifecycle snapshot, not a document type.",
@@ -104,11 +98,18 @@ class LmStudioAiProvider(AiProvider):
         return AiResult(text=content, provider="lm_studio", model=payload.get("model", self.model), data=data)
 
     def summarise_evidence(self, evidence: list[dict], question: str | None = None) -> AiResult:
+        compact_evidence = evidence[:12]
         prompt = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": "Summarise only the provided TrustVault evidence. State that FITS evidence is source of truth."},
-                {"role": "user", "content": json.dumps({"question": question, "evidence": evidence}, default=str)},
+                {
+                    "role": "system",
+                    "content": (
+                        "Summarise only the provided TrustVault evidence in concise English. "
+                        "Do not invent facts. State that preserved FITS evidence and hashes are the source of truth."
+                    ),
+                },
+                {"role": "user", "content": json.dumps({"question": question, "evidence": compact_evidence}, default=str)},
             ],
             "temperature": 0.1,
         }
@@ -128,6 +129,9 @@ class LmStudioAiProvider(AiProvider):
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
                 return json.loads(response.read().decode("utf-8")), None
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")[:1000]
+            return {}, f"HTTP Error {exc.code}: {exc.reason}; response={body}"
         except Exception as exc:
             return {}, str(exc)
 
