@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/trustvault_api_client.dart';
+import '../../shared/customer_selector_card.dart';
 import '../../shared/selected_customer.dart';
 
 class ComparisonScreen extends StatefulWidget {
@@ -62,9 +63,7 @@ class _ComparisonScreenState extends State<ComparisonScreen> {
                   children: [
                     Text('Comparison', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
                     const SizedBox(height: 8),
-                    const Text('Compares the selected customer FITS archive with database and index projections.'),
-                    const SizedBox(height: 8),
-                    Text('Customer: ${SelectedCustomerController.displayLabel}', style: Theme.of(context).textTheme.titleSmall),
+                    const Text('Compares one customer FITS archive with database and index projections.'),
                   ],
                 ),
               ),
@@ -79,6 +78,12 @@ class _ComparisonScreenState extends State<ComparisonScreen> {
               const SizedBox(width: 12),
               OutlinedButton.icon(onPressed: _load, icon: const Icon(Icons.compare_arrows), label: const Text('Compare')),
             ],
+          ),
+          const SizedBox(height: 16),
+          CustomerSelectorCard(
+            title: 'Customer to compare',
+            subtitle: 'The comparison checks this customer FITS archive against the database/index projections.',
+            onChanged: (_) => _load(),
           ),
           const SizedBox(height: 24),
           Expanded(
