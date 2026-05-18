@@ -152,8 +152,7 @@ class _SideNavigation extends StatelessWidget {
             children: [
               _NavItem(path: '/health', label: 'Health', icon: Icons.health_and_safety_outlined, currentPath: currentPath),
               _NavItem(path: '/customers', label: 'Customers', icon: Icons.business_outlined, currentPath: currentPath),
-              _NavItem(path: '/search', label: 'Search', icon: Icons.manage_search_outlined, currentPath: currentPath),
-              _NavItem(path: '/api', label: 'API / Query Console', icon: Icons.api_outlined, currentPath: currentPath),
+              _NavItem(path: '/search', label: 'Search & Query', icon: Icons.manage_search_outlined, currentPath: currentPath),
             ],
           ),
           _NavGroup(
