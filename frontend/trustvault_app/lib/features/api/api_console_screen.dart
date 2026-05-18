@@ -19,6 +19,7 @@ class _ApiConsoleScreenState extends State<ApiConsoleScreen> {
     text: 'Show me all onboarding documentation for high risk clients in Guernsey.',
   );
   bool _useSelectedCustomer = false;
+  bool _includeAiSummary = true;
   String _interpretationMode = 'auto';
   bool _loading = false;
   Map<String, dynamic>? _result;
@@ -50,7 +51,12 @@ class _ApiConsoleScreenState extends State<ApiConsoleScreen> {
     try {
       final entity = _useSelectedCustomer ? SelectedCustomerController.externalId : null;
       final result = execute
-          ? await _apiClient.executeQuery(query: query, entityExternalId: entity, mode: _interpretationMode)
+          ? await _apiClient.executeQuery(
+              query: query,
+              entityExternalId: entity,
+              mode: _interpretationMode,
+              includeAiSummary: _includeAiSummary,
+            )
           : await _apiClient.interpretQuery(query: query, entityExternalId: entity, mode: _interpretationMode);
       if (!mounted) return;
       setState(() {
@@ -151,6 +157,16 @@ class _ApiConsoleScreenState extends State<ApiConsoleScreen> {
                           onChanged: (value) => setState(() => _useSelectedCustomer = value),
                           title: const Text('Run in selected-customer scope'),
                           subtitle: Text(_useSelectedCustomer ? 'Selected customer: ${SelectedCustomerController.displayLabel}' : 'Archive-wide / index-backed search'),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          value: _includeAiSummary,
+                          onChanged: (value) => setState(() => _includeAiSummary = value),
+                          title: const Text('Request AI summary'),
+                          subtitle: const Text('Adds include_ai_summary=true when executing a query.'),
                         ),
                       ),
                       const SizedBox(width: 16),
@@ -291,6 +307,7 @@ class _QueryResultView extends StatelessWidget {
   Widget build(BuildContext context) {
     final structured = result['structured_query'] as Map<String, dynamic>? ?? <String, dynamic>{};
     final interpretation = result['interpretation'] as Map<String, dynamic>? ?? <String, dynamic>{};
+    final aiSummary = result['ai_summary'] as Map<String, dynamic>?;
     final executionSource = result['execution_source'];
     final executionResult = result['result'] as Map<String, dynamic>?;
     final diagnostics = executionResult?['diagnostics'] as Map<String, dynamic>?;
@@ -300,7 +317,7 @@ class _QueryResultView extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: DefaultTabController(
-          length: 5,
+          length: 6,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -315,12 +332,14 @@ class _QueryResultView extends StatelessWidget {
                 if (interpretation['ai_model'] != null) Chip(label: Text('Model: ${interpretation['ai_model']}')),
                 if (executionSource != null) Chip(label: Text('Source: $executionSource')),
                 if (executionResult != null) Chip(label: Text('Results: ${executionResult['result_count'] ?? rows.length}')),
+                if (aiSummary != null) Chip(label: Text('AI summary: ${aiSummary['available'] == true ? 'available' : 'not available'}')),
               ]),
               const SizedBox(height: 12),
               const TabBar(
                 isScrollable: true,
                 tabs: [
                   Tab(icon: Icon(Icons.table_rows_outlined), text: 'Results'),
+                  Tab(icon: Icon(Icons.psychology_alt_outlined), text: 'AI summary'),
                   Tab(icon: Icon(Icons.account_tree_outlined), text: 'Structured query'),
                   Tab(icon: Icon(Icons.psychology_alt_outlined), text: 'Interpretation'),
                   Tab(icon: Icon(Icons.troubleshoot_outlined), text: 'Diagnostics'),
@@ -332,6 +351,7 @@ class _QueryResultView extends StatelessWidget {
                 child: TabBarView(
                   children: [
                     _ResultsTable(rows: rows, result: executionResult),
+                    _AiSummaryPanel(summary: aiSummary),
                     _JsonPanel(value: structured.isEmpty ? result : structured),
                     _JsonPanel(value: interpretation.isEmpty ? <String, dynamic>{'message': 'No interpretation block returned.'} : interpretation),
                     _JsonPanel(value: diagnostics ?? <String, dynamic>{'message': 'No diagnostics returned for this query.'}),
@@ -343,6 +363,45 @@ class _QueryResultView extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _AiSummaryPanel extends StatelessWidget {
+  const _AiSummaryPanel({required this.summary});
+
+  final Map<String, dynamic>? summary;
+
+  @override
+  Widget build(BuildContext context) {
+    if (summary == null) {
+      return const Center(child: Text('No AI summary was requested or returned. Enable “Request AI summary” and execute the query.'));
+    }
+    final available = summary!['available'] == true;
+    final text = '${summary!['summary'] ?? summary!['warning'] ?? 'No summary text returned.'}';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          Chip(label: Text('Available: $available')),
+          if (summary!['provider'] != null) Chip(label: Text('Provider: ${summary!['provider']}')),
+          if (summary!['model'] != null) Chip(label: Text('Model: ${summary!['model']}')),
+          if (summary!['evidence_row_count'] != null) Chip(label: Text('Rows summarised: ${summary!['evidence_row_count']}')),
+        ]),
+        const SizedBox(height: 12),
+        Expanded(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: SelectableText(text),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -368,12 +427,15 @@ class _ResultsTable extends StatelessWidget {
             columns: const [
               DataColumn(label: Text('Customer')),
               DataColumn(label: Text('Name')),
+              DataColumn(label: Text('Risk')),
+              DataColumn(label: Text('Jurisdiction')),
               DataColumn(label: Text('Filename')),
               DataColumn(label: Text('Category')),
               DataColumn(label: Text('Document type')),
               DataColumn(label: Text('Source')),
               DataColumn(label: Text('Retention until')),
               DataColumn(label: Text('Legal hold')),
+              DataColumn(label: Text('Cohort source')),
               DataColumn(label: Text('Score')),
               DataColumn(label: Text('Snippet')),
             ],
@@ -384,12 +446,15 @@ class _ResultsTable extends StatelessWidget {
               return DataRow(cells: [
                 DataCell(Text(value('entity_external_id'))),
                 DataCell(SizedBox(width: 180, child: Text(value('entity_display_name'), overflow: TextOverflow.ellipsis))),
+                DataCell(Text(value('risk_rating'))),
+                DataCell(Text(value('jurisdiction'))),
                 DataCell(SizedBox(width: 260, child: Text(value('filename'), overflow: TextOverflow.ellipsis))),
                 DataCell(Text(value('category'))),
                 DataCell(Text(value('document_type'))),
                 DataCell(Text(value('source_system'))),
                 DataCell(Text(value('retention_until'))),
                 DataCell(Text(value('legal_hold_status'))),
+                DataCell(Text(value('cohort_match_source'))),
                 DataCell(Text(value('match_score'))),
                 DataCell(SizedBox(width: 480, child: Text('${row['snippet'] ?? row['text_content'] ?? ''}', overflow: TextOverflow.ellipsis, maxLines: 2))),
               ]);
