@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../../core/api/trustvault_api_client.dart';
+import '../../shared/customer_selector_card.dart';
 import '../../shared/selected_customer.dart';
 
 class ApiConsoleScreen extends StatefulWidget {
@@ -18,6 +19,7 @@ class _ApiConsoleScreenState extends State<ApiConsoleScreen> {
     text: 'Show me all onboarding documentation for high risk clients in Guernsey.',
   );
   bool _useSelectedCustomer = false;
+  String _interpretationMode = 'auto';
   bool _loading = false;
   Map<String, dynamic>? _result;
   String? _error;
@@ -48,8 +50,8 @@ class _ApiConsoleScreenState extends State<ApiConsoleScreen> {
     try {
       final entity = _useSelectedCustomer ? SelectedCustomerController.externalId : null;
       final result = execute
-          ? await _apiClient.executeQuery(query: query, entityExternalId: entity)
-          : await _apiClient.interpretQuery(query: query, entityExternalId: entity);
+          ? await _apiClient.executeQuery(query: query, entityExternalId: entity, mode: _interpretationMode)
+          : await _apiClient.interpretQuery(query: query, entityExternalId: entity, mode: _interpretationMode);
       if (!mounted) return;
       setState(() {
         _result = result;
@@ -93,7 +95,7 @@ class _ApiConsoleScreenState extends State<ApiConsoleScreen> {
                   children: [
                     Text('API and query console', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
                     const SizedBox(height: 8),
-                    const Text('Run archive-wide searches, selected-customer FITS searches, query interpretation checks and natural-language execution tests.'),
+                    const Text('Run archive-wide searches, selected-customer FITS searches, AI-assisted interpretation checks and natural-language execution tests.'),
                   ],
                 ),
               ),
@@ -121,6 +123,13 @@ class _ApiConsoleScreenState extends State<ApiConsoleScreen> {
             ),
           ),
           const SizedBox(height: 20),
+          if (_useSelectedCustomer) ...[
+            CustomerSelectorCard(
+              title: 'Selected-customer query context',
+              subtitle: 'Used when the query should run against one customer FITS archive instead of the cross-archive index.',
+            ),
+            const SizedBox(height: 20),
+          ],
           Card(
             child: Padding(
               padding: const EdgeInsets.all(20),
@@ -130,32 +139,41 @@ class _ApiConsoleScreenState extends State<ApiConsoleScreen> {
                   TextField(
                     controller: _queryController,
                     maxLines: 2,
-                    decoration: const InputDecoration(
-                      labelText: 'TrustVault query',
-                      border: OutlineInputBorder(),
-                    ),
+                    decoration: const InputDecoration(labelText: 'TrustVault query', border: OutlineInputBorder()),
                   ),
                   const SizedBox(height: 12),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    value: _useSelectedCustomer,
-                    onChanged: (value) => setState(() => _useSelectedCustomer = value),
-                    title: const Text('Run in selected-customer scope'),
-                    subtitle: Text('Selected customer: ${SelectedCustomerController.displayLabel}. Off means archive-wide/index-backed search.'),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          value: _useSelectedCustomer,
+                          onChanged: (value) => setState(() => _useSelectedCustomer = value),
+                          title: const Text('Run in selected-customer scope'),
+                          subtitle: Text(_useSelectedCustomer ? 'Selected customer: ${SelectedCustomerController.displayLabel}' : 'Archive-wide / index-backed search'),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      SizedBox(
+                        width: 260,
+                        child: DropdownButtonFormField<String>(
+                          value: _interpretationMode,
+                          decoration: const InputDecoration(labelText: 'Interpretation mode', border: OutlineInputBorder()),
+                          items: const [
+                            DropdownMenuItem(value: 'auto', child: Text('Auto')),
+                            DropdownMenuItem(value: 'deterministic', child: Text('Deterministic')),
+                            DropdownMenuItem(value: 'ai', child: Text('AI assisted')),
+                          ],
+                          onChanged: (value) => setState(() => _interpretationMode = value ?? 'auto'),
+                        ),
+                      ),
+                    ],
                   ),
                   Row(
                     children: [
-                      FilledButton.icon(
-                        onPressed: _loading ? null : () => _run(execute: false),
-                        icon: const Icon(Icons.psychology_alt_outlined),
-                        label: const Text('Interpret only'),
-                      ),
+                      FilledButton.icon(onPressed: _loading ? null : () => _run(execute: false), icon: const Icon(Icons.psychology_alt_outlined), label: const Text('Interpret only')),
                       const SizedBox(width: 12),
-                      FilledButton.icon(
-                        onPressed: _loading ? null : () => _run(execute: true),
-                        icon: const Icon(Icons.play_arrow),
-                        label: const Text('Execute'),
-                      ),
+                      FilledButton.icon(onPressed: _loading ? null : () => _run(execute: true), icon: const Icon(Icons.play_arrow), label: const Text('Execute')),
                       if (_loading) ...[
                         const SizedBox(width: 16),
                         const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
@@ -168,12 +186,7 @@ class _ApiConsoleScreenState extends State<ApiConsoleScreen> {
           ),
           const SizedBox(height: 20),
           if (_error != null)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-              ),
-            ),
+            Card(child: Padding(padding: const EdgeInsets.all(16), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)))),
           Expanded(
             child: _result == null
                 ? const Center(child: Text('Interpret or execute a TrustVault query to view structured output.'))
@@ -187,7 +200,6 @@ class _ApiConsoleScreenState extends State<ApiConsoleScreen> {
 
 class _ArchiveStatusCard extends StatelessWidget {
   const _ArchiveStatusCard({required this.future});
-
   final Future<Map<String, dynamic>> future;
 
   @override
@@ -207,21 +219,15 @@ class _ArchiveStatusCard extends StatelessWidget {
               children: [
                 Text('Archive status', style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    Chip(label: Text('Entities: ${data['entity_count'] ?? 0}')),
-                    Chip(label: Text('Containers: ${data['current_fits_container_count'] ?? 0}')),
-                    Chip(label: Text('Indexed objects: ${data['fits_index_entry_count'] ?? 0}')),
-                  ],
-                ),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  Chip(label: Text('Entities: ${data['entity_count'] ?? 0}')),
+                  Chip(label: Text('Containers: ${data['current_fits_container_count'] ?? 0}')),
+                  Chip(label: Text('Indexed objects: ${data['fits_index_entry_count'] ?? 0}')),
+                ]),
                 const SizedBox(height: 8),
                 Expanded(
                   child: SingleChildScrollView(
-                    child: Text(
-                      'Source: ${config['source_folder'] ?? '-'}\nContainers: ${config['containers_folder'] ?? '-'}\nIndex: ${config['index_path'] ?? '-'}\nExports: ${config['exports_folder'] ?? '-'}',
-                    ),
+                    child: Text('Source: ${config['source_folder'] ?? '-'}\nContainers: ${config['containers_folder'] ?? '-'}\nIndex: ${config['index_path'] ?? '-'}\nExports: ${config['exports_folder'] ?? '-'}'),
                   ),
                 ),
               ],
@@ -235,7 +241,6 @@ class _ArchiveStatusCard extends StatelessWidget {
 
 class _ScenarioPicker extends StatelessWidget {
   const _ScenarioPicker({required this.future, required this.onSelected});
-
   final Future<Map<String, dynamic>> future;
   final ValueChanged<String> onSelected;
 
@@ -264,13 +269,7 @@ class _ScenarioPicker extends StatelessWidget {
                       return ExpansionTile(
                         dense: true,
                         title: Text('${group['group']}'),
-                        children: examples.map((example) {
-                          return ListTile(
-                            dense: true,
-                            title: Text('$example'),
-                            onTap: () => onSelected('$example'),
-                          );
-                        }).toList(),
+                        children: examples.map((example) => ListTile(dense: true, title: Text('$example'), onTap: () => onSelected('$example'))).toList(),
                       );
                     },
                   ),
@@ -286,12 +285,12 @@ class _ScenarioPicker extends StatelessWidget {
 
 class _QueryResultView extends StatelessWidget {
   const _QueryResultView({required this.result});
-
   final Map<String, dynamic> result;
 
   @override
   Widget build(BuildContext context) {
     final structured = result['structured_query'] as Map<String, dynamic>?;
+    final interpretation = result['interpretation'] as Map<String, dynamic>?;
     final executionSource = result['execution_source'];
     final executionResult = result['result'] as Map<String, dynamic>?;
     final rows = (executionResult?['results'] as List<dynamic>? ?? <dynamic>[]).cast<dynamic>();
@@ -304,20 +303,24 @@ class _QueryResultView extends StatelessWidget {
             if (structured != null) ...[
               Text('Structured query', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  Chip(label: Text('Scope: ${structured['scope']}')),
-                  Chip(label: Text('Capability: ${structured['capability']}')),
-                  Chip(label: Text('Execute with: ${structured['execute_with']}')),
-                  if (structured['snapshot_id'] != null) Chip(label: Text('Snapshot: ${structured['snapshot_id']}')),
-                  if (structured['risk_rating'] != null) Chip(label: Text('Risk: ${structured['risk_rating']}')),
-                  if (structured['jurisdiction'] != null) Chip(label: Text('Jurisdiction: ${structured['jurisdiction']}')),
-                ],
-              ),
-              const SizedBox(height: 12),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                Chip(label: Text('Scope: ${structured['scope']}')),
+                Chip(label: Text('Capability: ${structured['capability']}')),
+                Chip(label: Text('Execute with: ${structured['execute_with']}')),
+                if (structured['snapshot_id'] != null) Chip(label: Text('Snapshot: ${structured['snapshot_id']}')),
+                if (structured['risk_rating'] != null) Chip(label: Text('Risk: ${structured['risk_rating']}')),
+                if (structured['jurisdiction'] != null) Chip(label: Text('Jurisdiction: ${structured['jurisdiction']}')),
+              ]),
+              const SizedBox(height: 8),
             ],
+            if (interpretation != null)
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                Chip(label: Text('Mode: ${interpretation['mode']}')),
+                Chip(label: Text('AI used: ${interpretation['ai_used']}')),
+                if (interpretation['ai_provider'] != null) Chip(label: Text('Provider: ${interpretation['ai_provider']}')),
+                if (interpretation['ai_model'] != null) Chip(label: Text('Model: ${interpretation['ai_model']}')),
+              ]),
+            const SizedBox(height: 12),
             if (executionSource != null) ...[
               Text('Execution source: $executionSource'),
               const SizedBox(height: 8),
