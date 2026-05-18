@@ -289,61 +289,148 @@ class _QueryResultView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final structured = result['structured_query'] as Map<String, dynamic>?;
-    final interpretation = result['interpretation'] as Map<String, dynamic>?;
+    final structured = result['structured_query'] as Map<String, dynamic>? ?? <String, dynamic>{};
+    final interpretation = result['interpretation'] as Map<String, dynamic>? ?? <String, dynamic>{};
     final executionSource = result['execution_source'];
     final executionResult = result['result'] as Map<String, dynamic>?;
-    final rows = (executionResult?['results'] as List<dynamic>? ?? <dynamic>[]).cast<dynamic>();
+    final diagnostics = executionResult?['diagnostics'] as Map<String, dynamic>?;
+    final rows = (executionResult?['results'] as List<dynamic>? ?? <dynamic>[]).whereType<Map<String, dynamic>>().toList();
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (structured != null) ...[
-              Text('Structured query', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 8),
+        child: DefaultTabController(
+          length: 5,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Wrap(spacing: 8, runSpacing: 8, children: [
-                Chip(label: Text('Scope: ${structured['scope']}')),
-                Chip(label: Text('Capability: ${structured['capability']}')),
-                Chip(label: Text('Execute with: ${structured['execute_with']}')),
+                if (structured.isNotEmpty) Chip(label: Text('Scope: ${structured['scope'] ?? '-'}')),
+                if (structured.isNotEmpty) Chip(label: Text('Capability: ${structured['capability'] ?? '-'}')),
+                if (structured.isNotEmpty) Chip(label: Text('Execute with: ${structured['execute_with'] ?? '-'}')),
                 if (structured['snapshot_id'] != null) Chip(label: Text('Snapshot: ${structured['snapshot_id']}')),
                 if (structured['risk_rating'] != null) Chip(label: Text('Risk: ${structured['risk_rating']}')),
                 if (structured['jurisdiction'] != null) Chip(label: Text('Jurisdiction: ${structured['jurisdiction']}')),
-              ]),
-              const SizedBox(height: 8),
-            ],
-            if (interpretation != null)
-              Wrap(spacing: 8, runSpacing: 8, children: [
-                Chip(label: Text('Mode: ${interpretation['mode']}')),
-                Chip(label: Text('AI used: ${interpretation['ai_used']}')),
-                if (interpretation['ai_provider'] != null) Chip(label: Text('Provider: ${interpretation['ai_provider']}')),
+                if (interpretation.isNotEmpty) Chip(label: Text('AI used: ${interpretation['ai_used'] ?? false}')),
                 if (interpretation['ai_model'] != null) Chip(label: Text('Model: ${interpretation['ai_model']}')),
+                if (executionSource != null) Chip(label: Text('Source: $executionSource')),
+                if (executionResult != null) Chip(label: Text('Results: ${executionResult['result_count'] ?? rows.length}')),
               ]),
-            const SizedBox(height: 12),
-            if (executionSource != null) ...[
-              Text('Execution source: $executionSource'),
-              const SizedBox(height: 8),
-              Text('Result count: ${executionResult?['result_count'] ?? rows.length}'),
               const SizedBox(height: 12),
+              const TabBar(
+                isScrollable: true,
+                tabs: [
+                  Tab(icon: Icon(Icons.table_rows_outlined), text: 'Results'),
+                  Tab(icon: Icon(Icons.account_tree_outlined), text: 'Structured query'),
+                  Tab(icon: Icon(Icons.psychology_alt_outlined), text: 'Interpretation'),
+                  Tab(icon: Icon(Icons.troubleshoot_outlined), text: 'Diagnostics'),
+                  Tab(icon: Icon(Icons.data_object_outlined), text: 'Raw JSON'),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    _ResultsTable(rows: rows, result: executionResult),
+                    _JsonPanel(value: structured.isEmpty ? result : structured),
+                    _JsonPanel(value: interpretation.isEmpty ? <String, dynamic>{'message': 'No interpretation block returned.'} : interpretation),
+                    _JsonPanel(value: diagnostics ?? <String, dynamic>{'message': 'No diagnostics returned for this query.'}),
+                    _JsonPanel(value: result),
+                  ],
+                ),
+              ),
             ],
-            Expanded(
-              child: rows.isEmpty
-                  ? SingleChildScrollView(child: SelectableText(const JsonEncoder.withIndent('  ').convert(result)))
-                  : ListView.separated(
-                      itemCount: rows.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
-                      itemBuilder: (context, index) {
-                        final row = rows[index] as Map<String, dynamic>;
-                        return ListTile(
-                          leading: const Icon(Icons.article_outlined),
-                          title: Text('${row['filename'] ?? row['entity_external_id'] ?? row['run_id'] ?? 'Result'}'),
-                          subtitle: SelectableText(row.entries.map((entry) => '${entry.key}: ${entry.value}').join('\n')),
-                        );
-                      },
-                    ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ResultsTable extends StatelessWidget {
+  const _ResultsTable({required this.rows, required this.result});
+
+  final List<Map<String, dynamic>> rows;
+  final Map<String, dynamic>? result;
+
+  @override
+  Widget build(BuildContext context) {
+    if (rows.isEmpty) {
+      return _JsonPanel(value: result ?? <String, dynamic>{'message': 'No result rows returned.'});
+    }
+
+    return Scrollbar(
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SingleChildScrollView(
+          child: DataTable(
+            columns: const [
+              DataColumn(label: Text('Customer')),
+              DataColumn(label: Text('Name')),
+              DataColumn(label: Text('Filename')),
+              DataColumn(label: Text('Category')),
+              DataColumn(label: Text('Document type')),
+              DataColumn(label: Text('Source')),
+              DataColumn(label: Text('Retention until')),
+              DataColumn(label: Text('Legal hold')),
+              DataColumn(label: Text('Score')),
+              DataColumn(label: Text('Snippet')),
+            ],
+            rows: rows.map((row) {
+              final metadata = row['metadata'] as Map<String, dynamic>? ?? <String, dynamic>{};
+              final nested = metadata['metadata'] as Map<String, dynamic>? ?? <String, dynamic>{};
+              String value(String key) => '${row[key] ?? metadata[key] ?? nested[key] ?? '-'}';
+              return DataRow(cells: [
+                DataCell(Text(value('entity_external_id'))),
+                DataCell(SizedBox(width: 180, child: Text(value('entity_display_name'), overflow: TextOverflow.ellipsis))),
+                DataCell(SizedBox(width: 260, child: Text(value('filename'), overflow: TextOverflow.ellipsis))),
+                DataCell(Text(value('category'))),
+                DataCell(Text(value('document_type'))),
+                DataCell(Text(value('source_system'))),
+                DataCell(Text(value('retention_until'))),
+                DataCell(Text(value('legal_hold_status'))),
+                DataCell(Text(value('match_score'))),
+                DataCell(SizedBox(width: 480, child: Text('${row['snippet'] ?? row['text_content'] ?? ''}', overflow: TextOverflow.ellipsis, maxLines: 2))),
+              ]);
+            }).toList(),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _JsonPanel extends StatelessWidget {
+  const _JsonPanel({required this.value});
+
+  final Object value;
+
+  @override
+  Widget build(BuildContext context) {
+    final encoded = const JsonEncoder.withIndent('  ').convert(value);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Scrollbar(
+        thumbVisibility: true,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: 1200,
+            child: Scrollbar(
+              thumbVisibility: true,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: SelectableText(
+                  encoded,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
+                ),
+              ),
             ),
-          ],
+          ),
         ),
       ),
     );
