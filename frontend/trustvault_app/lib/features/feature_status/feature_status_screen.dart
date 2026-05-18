@@ -54,16 +54,10 @@ class _FeatureStatusScreenState extends State<FeatureStatusScreen> {
             child: FutureBuilder<Map<String, dynamic>>(
               future: _future,
               builder: (context, snapshot) {
-                if (snapshot.connectionState != ConnectionState.done) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (snapshot.hasError) {
-                  return Center(child: Text('Unable to load ${widget.title}: ${snapshot.error}'));
-                }
+                if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
+                if (snapshot.hasError) return Center(child: Text('Unable to load ${widget.title}: ${snapshot.error}'));
                 final data = snapshot.data ?? <String, dynamic>{};
-                if (data.containsKey('components')) {
-                  return _HealthStatusView(data: data);
-                }
+                if (data.containsKey('components')) return _HealthStatusView(data: data);
                 return _GenericStatusView(data: data);
               },
             ),
@@ -81,14 +75,10 @@ class _HealthStatusView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final components = (data['components'] as Map<String, dynamic>? ?? <String, dynamic>{});
+    final components = data['components'] as Map<String, dynamic>? ?? <String, dynamic>{};
     final componentRows = components.entries.map((entry) {
       final details = entry.value is Map<String, dynamic> ? entry.value as Map<String, dynamic> : <String, dynamic>{'status': entry.value};
-      return _ComponentStatus(
-        name: entry.key,
-        status: '${details['status'] ?? 'unknown'}',
-        details: details,
-      );
+      return _ComponentStatus(name: entry.key, status: '${details['status'] ?? 'unknown'}', details: details);
     }).toList();
 
     final overall = '${data['status'] ?? 'unknown'}';
@@ -107,13 +97,9 @@ class _HealthStatusView extends StatelessWidget {
       children: [
         Row(
           children: [
-            Expanded(
-              child: _OverallStatusCard(status: overall, healthy: healthy),
-            ),
+            Expanded(child: _OverallStatusCard(status: overall, healthy: healthy)),
             const SizedBox(width: 16),
-            Expanded(
-              child: _ConfigurationCard(configuration: configuration),
-            ),
+            Expanded(child: _ConfigurationCard(configuration: configuration)),
           ],
         ),
         const SizedBox(height: 16),
@@ -127,7 +113,7 @@ class _HealthStatusView extends StatelessWidget {
                   crossAxisCount: crossAxisCount,
                   crossAxisSpacing: 12,
                   mainAxisSpacing: 12,
-                  childAspectRatio: 1.85,
+                  childAspectRatio: 1.55,
                 ),
                 itemBuilder: (context, index) => componentRows[index],
               );
@@ -187,11 +173,7 @@ class _ConfigurationCard extends StatelessWidget {
           children: [
             Text('Runtime configuration', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: rows.map((entry) => Chip(label: Text('${entry.key}: ${entry.value}'))).toList(),
-            ),
+            Wrap(spacing: 8, runSpacing: 8, children: rows.map((entry) => Chip(label: Text('${entry.key}: ${entry.value}'))).toList()),
           ],
         ),
       ),
@@ -211,17 +193,11 @@ class _ComponentStatus extends StatelessWidget {
     final positive = _isPositive(status);
     final neutral = _isNeutral(status);
     final scheme = Theme.of(context).colorScheme;
-    final background = positive
-        ? scheme.primaryContainer
-        : neutral
-            ? scheme.secondaryContainer
-            : scheme.errorContainer;
-    final foreground = positive
-        ? scheme.onPrimaryContainer
-        : neutral
-            ? scheme.onSecondaryContainer
-            : scheme.onErrorContainer;
+    final background = positive ? scheme.primaryContainer : neutral ? scheme.secondaryContainer : scheme.errorContainer;
+    final foreground = positive ? scheme.onPrimaryContainer : neutral ? scheme.onSecondaryContainer : scheme.onErrorContainer;
     final extra = Map<String, dynamic>.from(details)..remove('status');
+    final visibleExtra = extra.entries.where((entry) => entry.value != null && '${entry.value}'.isNotEmpty).toList();
+    final description = _descriptionFor(name, status);
 
     return Card(
       child: Padding(
@@ -243,21 +219,20 @@ class _ComponentStatus extends StatelessWidget {
                     children: [
                       Text(_label(name), style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 4),
-                      _StatusPill(status: status, positive: positive, neutral: neutral),
+                      _StatusPill(status: _statusLabel(status), positive: positive, neutral: neutral),
                     ],
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 12),
+            Text(description, style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 8),
             Expanded(
-              child: extra.isEmpty
-                  ? Text('No additional issues reported.', style: Theme.of(context).textTheme.bodySmall)
+              child: visibleExtra.isEmpty
+                  ? Text(positive || neutral ? 'No errors reported.' : 'No additional diagnostic details reported.', style: Theme.of(context).textTheme.bodySmall)
                   : SingleChildScrollView(
-                      child: Text(
-                        extra.entries.map((entry) => '${_label(entry.key)}: ${entry.value ?? '-'}').join('\n'),
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
+                      child: Text(visibleExtra.map((entry) => '${_label(entry.key)}: ${entry.value}').join('\n'), style: Theme.of(context).textTheme.bodySmall),
                     ),
             ),
           ],
@@ -268,6 +243,29 @@ class _ComponentStatus extends StatelessWidget {
 
   bool _isPositive(String value) => ['ok', 'healthy', 'ready', 'connected', 'available', 'success'].contains(value.toLowerCase());
   bool _isNeutral(String value) => ['database-backed', 'polled', 'disabled_by_default', 'sidecar_or_metadata_first', 'none'].contains(value.toLowerCase());
+
+  String _statusLabel(String value) => value.replaceAll('_', ' ');
+
+  String _descriptionFor(String name, String status) {
+    switch (name.toLowerCase()) {
+      case 'api':
+        return 'Confirms the TrustVault API process is running and responding.';
+      case 'database':
+        return 'Confirms the application can connect to the TrustVault database.';
+      case 'storage':
+        return 'Confirms configured evidence storage is reachable. Errors are shown below when present.';
+      case 'queue':
+        return status == 'database-backed' ? 'Jobs are currently queued through the TrustVault database.' : 'Confirms the configured background job queue provider.';
+      case 'worker':
+        return status == 'polled' ? 'Background work is picked up by the worker using job-table polling.' : 'Confirms the background worker heartbeat/status.';
+      case 'ai':
+        return status == 'disabled_by_default' ? 'AI is available only where explicitly enabled or requested.' : 'Reports the configured AI provider status.';
+      case 'ocr':
+        return status == 'sidecar_or_metadata_first' ? 'Text extraction currently uses sidecar/search metadata first.' : 'Reports the configured OCR provider status.';
+      default:
+        return 'Reports health for this TrustVault component.';
+    }
+  }
 
   IconData _iconFor(String name) {
     switch (name.toLowerCase()) {
@@ -303,16 +301,8 @@ class _StatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final background = positive
-        ? scheme.primaryContainer
-        : neutral
-            ? scheme.secondaryContainer
-            : scheme.errorContainer;
-    final foreground = positive
-        ? scheme.onPrimaryContainer
-        : neutral
-            ? scheme.onSecondaryContainer
-            : scheme.onErrorContainer;
+    final background = positive ? scheme.primaryContainer : neutral ? scheme.secondaryContainer : scheme.errorContainer;
+    final foreground = positive ? scheme.onPrimaryContainer : neutral ? scheme.onSecondaryContainer : scheme.onErrorContainer;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(999)),
@@ -337,10 +327,7 @@ class _GenericStatusView extends StatelessWidget {
           separatorBuilder: (_, __) => const Divider(),
           itemBuilder: (context, index) {
             final entry = entries[index];
-            return ListTile(
-              title: Text(_label(entry.key), style: const TextStyle(fontWeight: FontWeight.w700)),
-              subtitle: SelectableText('${entry.value}'),
-            );
+            return ListTile(title: Text(_label(entry.key), style: const TextStyle(fontWeight: FontWeight.w700)), subtitle: SelectableText('${entry.value}'));
           },
         ),
       ),
@@ -350,10 +337,5 @@ class _GenericStatusView extends StatelessWidget {
 
 String _label(String value) {
   if (value.isEmpty) return value;
-  return value
-      .replaceAll('_', ' ')
-      .split(' ')
-      .where((part) => part.isNotEmpty)
-      .map((part) => part.substring(0, 1).toUpperCase() + part.substring(1))
-      .join(' ');
+  return value.replaceAll('_', ' ').split(' ').where((part) => part.isNotEmpty).map((part) => part.substring(0, 1).toUpperCase() + part.substring(1)).join(' ');
 }
