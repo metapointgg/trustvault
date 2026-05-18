@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api/trustvault_api_client.dart';
@@ -60,6 +61,7 @@ class _SearchScreenState extends State<SearchScreen> {
     final query = _queryController.text.trim();
     if (query.isEmpty) return;
     final entity = _useSelectedCustomer ? _entityController.text.trim() : null;
+    final executionMode = _includeAiSummary && _interpretationMode == 'auto' ? 'ai' : _interpretationMode;
     setState(() {
       _loading = true;
       _error = null;
@@ -69,7 +71,7 @@ class _SearchScreenState extends State<SearchScreen> {
       final result = await _apiClient.executeQuery(
         query: query,
         entityExternalId: entity == null || entity.isEmpty ? null : entity,
-        mode: _interpretationMode,
+        mode: executionMode,
         includeAiSummary: _includeAiSummary,
         limit: _limit,
       );
@@ -99,6 +101,24 @@ class _SearchScreenState extends State<SearchScreen> {
       _useSelectedCustomer = example.contains('CUST-000001') || example.toLowerCase().contains('selected customer');
       if (example.contains('CUST-000001')) _entityController.text = 'CUST-000001';
     });
+  }
+
+  Future<void> _openResultRow(Map<String, dynamic> row) async {
+    if (row['evidence_object_id'] != null) {
+      await _showPreview(row);
+      return;
+    }
+    final externalId = '${row['entity_external_id'] ?? row['external_id'] ?? ''}'.trim();
+    if (externalId.isEmpty || externalId == 'null') return;
+    SelectedCustomerController.select(<String, dynamic>{
+      'external_id': externalId,
+      'display_name': row['entity_display_name'] ?? row['display_name'] ?? externalId,
+      'id': row['entity_id'],
+      'risk_rating': row['risk_rating'],
+      'jurisdiction': row['jurisdiction'],
+    });
+    if (!mounted) return;
+    context.go('/customers');
   }
 
   Future<void> _showPreview(Map<String, dynamic> result) async {
@@ -161,11 +181,9 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_customerFilter.isEmpty) return rows.take(12).toList();
     return rows.where((row) {
       final haystack = '${row['external_id']} ${row['display_name']} ${row['risk_rating']} ${row['jurisdiction']}'.toLowerCase();
-      return haystack.contains(_filter);
+      return haystack.contains(_customerFilter);
     }).take(20).toList();
   }
-
-  String get _filter => _customerFilter;
 
   @override
   Widget build(BuildContext context) {
@@ -185,7 +203,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     children: [
                       Text('Search & Query', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 8),
-                      const Text('Ask TrustVault a question and review the returned evidence rows. Analysis details are available separately from the results grid.'),
+                      const Text('Ask TrustVault a question and review the returned evidence rows. Click an evidence row to preview it, or a customer row to open that customer context.'),
                     ],
                   ),
                 ),
@@ -242,7 +260,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   ? const Center(child: CircularProgressIndicator())
                   : _result == null
                       ? const _EmptySearchState()
-                      : _UnifiedResultView(result: _result!, onPreview: _showPreview, onShowAnalysis: _showAnalysis),
+                      : _UnifiedResultView(result: _result!, onPreview: _showPreview, onOpenRow: _openResultRow, onShowAnalysis: _showAnalysis),
             ),
           ],
         ),
@@ -363,8 +381,8 @@ class _QueryBuilderCard extends StatelessWidget {
             ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Narrative summary'),
-              subtitle: const Text('Show a plain-English summary above the results grid. Auto mode uses TrustVault deterministic summaries; AI assisted mode can use LM Studio.'),
+              title: const Text('AI narrative summary'),
+              subtitle: const Text('When enabled, TrustVault asks the AI provider for a short explanation of the returned evidence. Search interpretation remains evidence-bound.'),
               value: includeAiSummary,
               onChanged: onIncludeAiSummaryChanged,
             ),
@@ -393,26 +411,123 @@ class _ExampleMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<Map<String, dynamic>>(
-      future: future,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done || snapshot.hasError) {
-          return OutlinedButton.icon(onPressed: null, icon: const Icon(Icons.lightbulb_outline), label: const Text('Examples'));
-        }
-        final scenarios = (snapshot.data?['scenarios'] as List<dynamic>? ?? <dynamic>[]).whereType<Map<String, dynamic>>().toList();
-        final examples = <String>[];
-        for (final scenario in scenarios) {
-          examples.addAll((scenario['examples'] as List<dynamic>? ?? <dynamic>[]).map((item) => '$item'));
-        }
-        return PopupMenuButton<String>(
-          tooltip: 'Example queries',
-          onSelected: onSelected,
-          itemBuilder: (context) => examples.take(24).map((example) => PopupMenuItem<String>(value: example, child: SizedBox(width: 620, child: Text(example)))).toList(),
-          child: OutlinedButton.icon(onPressed: null, icon: const Icon(Icons.lightbulb_outline), label: const Text('Examples')),
-        );
-      },
+    return OutlinedButton.icon(
+      icon: const Icon(Icons.lightbulb_outline),
+      label: const Text('Browse examples'),
+      onPressed: () => _openExamples(context),
     );
   }
+
+  Future<void> _openExamples(BuildContext context) async {
+    final scenarios = await future;
+    if (!context.mounted) return;
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (context) => _ExampleBrowserDialog(data: scenarios),
+    );
+    if (selected != null && selected.isNotEmpty) onSelected(selected);
+  }
+}
+
+class _ExampleBrowserDialog extends StatefulWidget {
+  const _ExampleBrowserDialog({required this.data});
+
+  final Map<String, dynamic> data;
+
+  @override
+  State<_ExampleBrowserDialog> createState() => _ExampleBrowserDialogState();
+}
+
+class _ExampleBrowserDialogState extends State<_ExampleBrowserDialog> {
+  final TextEditingController _filterController = TextEditingController();
+  String _filter = '';
+  String _group = 'All';
+
+  @override
+  void initState() {
+    super.initState();
+    _filterController.addListener(() => setState(() => _filter = _filterController.text.trim().toLowerCase()));
+  }
+
+  @override
+  void dispose() {
+    _filterController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scenarios = (widget.data['scenarios'] as List<dynamic>? ?? <dynamic>[]).whereType<Map<String, dynamic>>().toList();
+    final groups = <String>['All', ...scenarios.map((item) => '${item['group']}')];
+    final examples = <_ExampleItem>[];
+    for (final scenario in scenarios) {
+      final group = '${scenario['group']}';
+      if (_group != 'All' && _group != group) continue;
+      for (final example in (scenario['examples'] as List<dynamic>? ?? <dynamic>[])) {
+        final text = '$example';
+        if (_filter.isNotEmpty && !('$group $text'.toLowerCase()).contains(_filter)) continue;
+        examples.add(_ExampleItem(group: group, text: text));
+      }
+    }
+
+    return AlertDialog(
+      title: const Text('Example queries'),
+      content: SizedBox(
+        width: 980,
+        height: 680,
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _filterController,
+                    decoration: const InputDecoration(border: OutlineInputBorder(), prefixIcon: Icon(Icons.search), labelText: 'Search examples by type, customer, evidence or task'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: 300,
+                  child: DropdownButtonFormField<String>(
+                    value: _group,
+                    decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Example type'),
+                    items: groups.map((group) => DropdownMenuItem(value: group, child: Text(group, overflow: TextOverflow.ellipsis))).toList(),
+                    onChanged: (value) => setState(() => _group = value ?? 'All'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: examples.isEmpty
+                  ? const Center(child: Text('No matching examples.'))
+                  : ListView.separated(
+                      itemCount: examples.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final item = examples[index];
+                        return ListTile(
+                          title: Text(item.text),
+                          subtitle: Text(item.group),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => Navigator.of(context).pop(item.text),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+      actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel'))],
+    );
+  }
+}
+
+class _ExampleItem {
+  const _ExampleItem({required this.group, required this.text});
+
+  final String group;
+  final String text;
 }
 
 class _SelectedCustomerSearch extends StatelessWidget {
@@ -472,10 +587,11 @@ class _SelectedCustomerSearch extends StatelessWidget {
 }
 
 class _UnifiedResultView extends StatelessWidget {
-  const _UnifiedResultView({required this.result, required this.onPreview, required this.onShowAnalysis});
+  const _UnifiedResultView({required this.result, required this.onPreview, required this.onOpenRow, required this.onShowAnalysis});
 
   final Map<String, dynamic> result;
   final Future<void> Function(Map<String, dynamic> result) onPreview;
+  final Future<void> Function(Map<String, dynamic> result) onOpenRow;
   final void Function(String title, Object value) onShowAnalysis;
 
   @override
@@ -527,7 +643,7 @@ class _UnifiedResultView extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            Expanded(child: _ResultsTable(rows: rows, result: executionResult, onPreview: onPreview)),
+            Expanded(child: _ResultsTable(rows: rows, result: executionResult, onPreview: onPreview, onOpenRow: onOpenRow)),
           ],
         ),
       ),
@@ -585,11 +701,12 @@ String _countsText(Map<String, int> counts) {
 }
 
 class _ResultsTable extends StatelessWidget {
-  const _ResultsTable({required this.rows, required this.result, required this.onPreview});
+  const _ResultsTable({required this.rows, required this.result, required this.onPreview, required this.onOpenRow});
 
   final List<Map<String, dynamic>> rows;
   final Map<String, dynamic> result;
   final Future<void> Function(Map<String, dynamic> result) onPreview;
+  final Future<void> Function(Map<String, dynamic> result) onOpenRow;
 
   @override
   Widget build(BuildContext context) {
@@ -604,6 +721,7 @@ class _ResultsTable extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         child: SingleChildScrollView(
           child: DataTable(
+            showCheckboxColumn: false,
             columns: const [
               DataColumn(label: Text('Customer')),
               DataColumn(label: Text('Name')),
@@ -624,25 +742,28 @@ class _ResultsTable extends StatelessWidget {
               final nested = metadata['metadata'] as Map<String, dynamic>? ?? <String, dynamic>{};
               String value(String key) => '${row[key] ?? metadata[key] ?? nested[key] ?? '-'}';
               final snippet = row['snippet'] ?? row['text_content'] ?? row['status'] ?? row['summary_type'] ?? '';
-              return DataRow(cells: [
-                DataCell(Text(value('entity_external_id'))),
-                DataCell(SizedBox(width: 180, child: Text(value('entity_display_name'), overflow: TextOverflow.ellipsis))),
-                DataCell(Text(value('risk_rating'))),
-                DataCell(Text(value('jurisdiction'))),
-                DataCell(SizedBox(width: 240, child: Text(value('filename'), overflow: TextOverflow.ellipsis))),
-                DataCell(Text(value('category'))),
-                DataCell(Text(value('document_type'))),
-                DataCell(Text(value('source_system'))),
-                DataCell(Text(value('retention_until'))),
-                DataCell(Text(value('legal_hold_status'))),
-                DataCell(Text(value('match_score'))),
-                DataCell(SizedBox(width: 500, child: Text('$snippet', overflow: TextOverflow.ellipsis, maxLines: 2))),
-                DataCell(TextButton.icon(
-                  onPressed: row['evidence_object_id'] == null ? null : () => onPreview(row),
-                  icon: const Icon(Icons.visibility_outlined),
-                  label: const Text('Preview'),
-                )),
-              ]);
+              return DataRow(
+                onSelectChanged: (_) => onOpenRow(row),
+                cells: [
+                  DataCell(Text(value('entity_external_id'))),
+                  DataCell(SizedBox(width: 180, child: Text(value('entity_display_name'), overflow: TextOverflow.ellipsis))),
+                  DataCell(Text(value('risk_rating'))),
+                  DataCell(Text(value('jurisdiction'))),
+                  DataCell(SizedBox(width: 240, child: Text(value('filename'), overflow: TextOverflow.ellipsis))),
+                  DataCell(Text(value('category'))),
+                  DataCell(Text(value('document_type'))),
+                  DataCell(Text(value('source_system'))),
+                  DataCell(Text(value('retention_until'))),
+                  DataCell(Text(value('legal_hold_status'))),
+                  DataCell(Text(value('match_score'))),
+                  DataCell(SizedBox(width: 500, child: Text('$snippet', overflow: TextOverflow.ellipsis, maxLines: 2))),
+                  DataCell(TextButton.icon(
+                    onPressed: row['evidence_object_id'] == null ? () => onOpenRow(row) : () => onPreview(row),
+                    icon: Icon(row['evidence_object_id'] == null ? Icons.business_outlined : Icons.visibility_outlined),
+                    label: Text(row['evidence_object_id'] == null ? 'Customer' : 'Preview'),
+                  )),
+                ],
+              );
             }).toList(),
           ),
         ),
