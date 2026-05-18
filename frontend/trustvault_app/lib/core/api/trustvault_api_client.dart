@@ -95,6 +95,39 @@ class TrustVaultApiClient {
   Future<List<dynamic>> getJobs() async => _getList('/api/v1/jobs');
   Future<List<dynamic>> getRulesets() async => _getList('/api/v1/rulesets');
 
+  Future<Map<String, dynamic>> createRuleset({required String name, int version = 1, String status = 'draft', String? description}) async {
+    final response = await _dio.post<Map<String, dynamic>>('/api/v1/rulesets', data: <String, dynamic>{'name': name, 'version': version, 'status': status, if (description != null) 'description': description});
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> updateRuleset({required String rulesetId, String? name, int? version, String? status, String? description}) async {
+    final response = await _dio.patch<Map<String, dynamic>>(
+      '/api/v1/rulesets/$rulesetId',
+      data: <String, dynamic>{if (name != null) 'name': name, if (version != null) 'version': version, if (status != null) 'status': status, if (description != null) 'description': description},
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> deleteRuleset(String rulesetId) async {
+    final response = await _dio.delete<Map<String, dynamic>>('/api/v1/rulesets/$rulesetId');
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> createRulesetRule({required String rulesetId, required Map<String, dynamic> rule}) async {
+    final response = await _dio.post<Map<String, dynamic>>('/api/v1/rulesets/$rulesetId/rules', data: rule);
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> updateRulesetRule({required String rulesetId, required String ruleId, required Map<String, dynamic> rule}) async {
+    final response = await _dio.patch<Map<String, dynamic>>('/api/v1/rulesets/$rulesetId/rules/$ruleId', data: rule);
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> deleteRulesetRule({required String rulesetId, required String ruleId}) async {
+    final response = await _dio.delete<Map<String, dynamic>>('/api/v1/rulesets/$rulesetId/rules/$ruleId');
+    return response.data ?? <String, dynamic>{};
+  }
+
   Future<Map<String, dynamic>> getCustomer(String customerId) async => _getMap('/api/v1/customers/$customerId');
   Future<Map<String, dynamic>> getCustomerEvidenceSummary(String customerId) async => _getMap('/api/v1/customers/$customerId/summary');
   Future<Map<String, dynamic>> getExtractionReport(String entityId) async => _getMap('/api/v1/extraction/entities/$entityId/report');
