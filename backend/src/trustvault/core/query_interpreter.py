@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Any
 
 
@@ -37,7 +37,38 @@ class TrustVaultQueryInterpreter:
         "jersey": "Jersey",
         "united kingdom": "United Kingdom",
         "uk": "United Kingdom",
+        "isle of man": "Isle of Man",
+        "iom": "Isle of Man",
     }
+
+    CUSTOMER_DISCOVERY_TERMS = (
+        "customer",
+        "customers",
+        "client",
+        "clients",
+        "entity",
+        "entities",
+    )
+
+    EVIDENCE_INTENT_TERMS = (
+        "evidence",
+        "document",
+        "documents",
+        "documentation",
+        "file",
+        "files",
+        "passport",
+        "identity",
+        "proof of address",
+        "source of wealth",
+        "source of funds",
+        "screening",
+        "cdd",
+        "due diligence",
+        "correspondence",
+        "statement",
+        "transaction",
+    )
 
     def interpret(self, raw_query: str, *, entity_external_id: str | None = None, execute: bool = False) -> StructuredQuery:
         q = raw_query.strip()
@@ -50,8 +81,8 @@ class TrustVaultQueryInterpreter:
         missing_type = self._extract_missing_type(lower)
         completeness = "complete" in lower or "completeness" in lower or "missing mandatory" in lower or missing_type is not None
         scope = "entity" if entity else "archive"
-        capability = "completeness_check" if completeness else "evidence_search"
-        execute_with = "direct_fits" if entity and not completeness else "fits_index"
+        capability = self._capability(lower, completeness, snapshot_id, document_types, categories)
+        execute_with = "direct_fits" if entity and capability not in {"completeness_check", "entity_discovery"} else "fits_index"
         return StructuredQuery(
             raw_query=q,
             scope=scope,
@@ -67,6 +98,25 @@ class TrustVaultQueryInterpreter:
             missing_evidence_type=missing_type,
             execute_with=execute_with,
         )
+
+    def _capability(
+        self,
+        lower: str,
+        completeness: bool,
+        snapshot_id: str | None,
+        document_types: list[str],
+        categories: list[str],
+    ) -> str:
+        if completeness:
+            return "completeness_check"
+        customer_intent = any(term in lower for term in self.CUSTOMER_DISCOVERY_TERMS)
+        evidence_intent = any(term in lower for term in self.EVIDENCE_INTENT_TERMS)
+        has_specific_evidence_filter = bool(snapshot_id or document_types or categories)
+        if customer_intent and not evidence_intent and not has_specific_evidence_filter:
+            return "entity_discovery"
+        if customer_intent and ("list" in lower or "show" in lower or "find" in lower) and not has_specific_evidence_filter:
+            return "entity_discovery"
+        return "evidence_search"
 
     def _extract_entity(self, lower: str) -> str | None:
         for token in lower.replace(":", " ").replace(",", " ").split():
