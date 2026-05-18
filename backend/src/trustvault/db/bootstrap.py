@@ -6,6 +6,7 @@ from sqlalchemy.exc import OperationalError
 
 from trustvault.db.base import Base
 from trustvault.db.models import (  # noqa: F401
+    AppSetting,
     AuditEvent,
     CompletenessResult,
     CompletenessRun,
@@ -58,8 +59,8 @@ def initialise_database() -> None:
 def _apply_local_compatibility_migrations() -> None:
     """Small additive migrations for existing local developer databases.
 
-    This prevents older docker-compose volumes from failing when the user table
-    has already been created before local-auth columns were added. Formal
+    This prevents older docker-compose volumes from failing when additive columns
+    or tables are introduced during the controlled deployment build. Formal
     production deployments should still use Alembic revisions.
     """
     statements = [
@@ -68,6 +69,18 @@ def _apply_local_compatibility_migrations() -> None:
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP WITH TIME ZONE",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()",
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email_unique ON users (email)",
+        "CREATE TABLE IF NOT EXISTS app_settings ("
+        "key VARCHAR(200) PRIMARY KEY, "
+        "value_json JSONB NOT NULL DEFAULT '{}'::jsonb, "
+        "value_type VARCHAR(50) NOT NULL DEFAULT 'string', "
+        "category VARCHAR(100) NOT NULL DEFAULT 'general', "
+        "description TEXT, "
+        "is_secret BOOLEAN NOT NULL DEFAULT false, "
+        "is_editable BOOLEAN NOT NULL DEFAULT true, "
+        "updated_by_user_id VARCHAR(200), "
+        "created_at TIMESTAMP WITH TIME ZONE DEFAULT now(), "
+        "updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()"
+        ")",
     ]
     with engine.begin() as connection:
         for statement in statements:
