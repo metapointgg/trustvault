@@ -17,6 +17,7 @@ import '../features/licence/licence_screen.dart';
 import '../features/retention/retention_screen.dart';
 import '../features/rulesets/rulesets_screen.dart';
 import '../features/search/search_screen.dart';
+import '../features/settings/settings_screen.dart';
 import '../features/users/user_admin_screen.dart';
 import '../shared/app_shell.dart';
 
@@ -50,6 +51,7 @@ final appRouter = GoRouter(
         GoRoute(path: '/fits', builder: (context, state) => const FitsOperationsScreen()),
         GoRoute(path: '/jobs', builder: (context, state) => const JobsScreen()),
         GoRoute(path: '/users', builder: (context, state) => const UserAdminScreen()),
+        GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
         GoRoute(path: '/audit', builder: (context, state) => const AuditScreen()),
         GoRoute(path: '/licence', builder: (context, state) => const LicenceScreen()),
       ],
