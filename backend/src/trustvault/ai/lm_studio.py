@@ -98,39 +98,76 @@ class LmStudioAiProvider(AiProvider):
         return AiResult(text=content, provider="lm_studio", model=payload.get("model", self.model), data=data)
 
     def summarise_evidence(self, evidence: list[dict], question: str | None = None) -> AiResult:
-        compact_evidence = evidence[:12]
-        prompt = {
+        compact_evidence = self._compact_evidence(evidence, max_rows=6, max_text_chars=360)
+        payload, warning = self._post_chat(self._summary_prompt(compact_evidence, question, terse=False))
+        if warning and self._looks_like_context_error(warning):
+            tiny_evidence = self._compact_evidence(evidence, max_rows=4, max_text_chars=180)
+            payload, warning = self._post_chat(self._summary_prompt(tiny_evidence, question, terse=True))
+        if warning:
+            fallback = self._deterministic_summary(compact_evidence)
+            return AiResult(text=fallback, provider="lm_studio", model=self.model, warnings=[warning, "Deterministic fallback summary returned because LM Studio rejected the prompt"])
+        return AiResult(text=self._content(payload), provider="lm_studio", model=payload.get("model", self.model))
+
+    def _summary_prompt(self, evidence: list[dict[str, Any]], question: str | None, *, terse: bool) -> dict[str, Any]:
+        system = (
+            "You are TrustVault's evidence assistant. Summarise only the provided evidence rows. "
+            "Do not invent facts. Mention entities, document categories, document types, jurisdictions, risk ratings and key facts. "
+            "End with: Preserved FITS evidence and payload hashes remain the source of truth."
+        )
+        if terse:
+            system = (
+                "Summarise the provided TrustVault evidence rows in one short paragraph and 3 bullets. "
+                "Do not invent facts. End with: Preserved FITS evidence and payload hashes remain the source of truth."
+            )
+        return {
             "model": self.model,
             "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are TrustVault's evidence assistant. Summarise only the provided evidence rows. "
-                        "Use concise English and do not invent facts. If rows are provided, produce a useful summary. "
-                        "Mention the matching entities, document categories, document types, jurisdictions, risk ratings and notable facts from text_preview where available. "
-                        "End with this exact sentence: Preserved FITS evidence and payload hashes remain the source of truth."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        {
-                            "task": "Summarise the TrustVault evidence rows returned for this search.",
-                            "question": question,
-                            "evidence_row_count": len(compact_evidence),
-                            "evidence": compact_evidence,
-                            "required_output": "One short paragraph followed by 3 to 6 concise bullets where useful.",
-                        },
-                        default=str,
-                    ),
-                },
+                {"role": "system", "content": system},
+                {"role": "user", "content": json.dumps({"question": question, "rows": evidence}, default=str, separators=(",", ":"))},
             ],
             "temperature": 0.1,
         }
-        payload, warning = self._post_chat(prompt)
-        if warning:
-            return AiResult(text="", provider="lm_studio", model=self.model, warnings=[warning])
-        return AiResult(text=self._content(payload), provider="lm_studio", model=payload.get("model", self.model))
+
+    def _compact_evidence(self, evidence: list[dict], *, max_rows: int, max_text_chars: int) -> list[dict[str, Any]]:
+        compact: list[dict[str, Any]] = []
+        for row in evidence[:max_rows]:
+            text = str(row.get("text_preview") or row.get("snippet") or "")
+            compact.append(
+                {
+                    "entity": row.get("entity_external_id"),
+                    "name": row.get("entity_display_name"),
+                    "file": row.get("filename"),
+                    "category": row.get("category"),
+                    "type": row.get("document_type") or row.get("object_type"),
+                    "jurisdiction": row.get("jurisdiction"),
+                    "risk": row.get("risk_rating"),
+                    "sha256": row.get("sha256"),
+                    "text": text[:max_text_chars],
+                }
+            )
+        return compact
+
+    def _deterministic_summary(self, evidence: list[dict[str, Any]]) -> str:
+        entities = sorted({str(row.get("entity") or "") for row in evidence if row.get("entity")})
+        names = sorted({str(row.get("name") or "") for row in evidence if row.get("name")})
+        categories = sorted({str(row.get("category") or "") for row in evidence if row.get("category")})
+        files = [str(row.get("file")) for row in evidence if row.get("file")]
+        facts = [str(row.get("text")) for row in evidence if row.get("text")][:3]
+        lines = [f"TrustVault found {len(evidence)} evidence rows" + (f" across {', '.join(entities)}" if entities else "") + "."]
+        if names:
+            lines.append(f"Customers: {', '.join(names)}.")
+        if categories:
+            lines.append(f"Document categories include: {', '.join(categories)}.")
+        if files:
+            lines.append(f"Representative files include: {', '.join(files[:6])}.")
+        if facts:
+            lines.append("Key evidence text includes: " + " | ".join(facts)[:700] + ".")
+        lines.append("Preserved FITS evidence and payload hashes remain the source of truth.")
+        return "\n".join(lines)
+
+    def _looks_like_context_error(self, warning: str) -> bool:
+        value = warning.lower()
+        return "context length" in value or "tokens to keep" in value or ("prompt" in value and "larger context" in value)
 
     def _post_chat(self, payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
         url = f"{self.base_url}/v1/chat/completions" if not self.base_url.endswith("/v1") else f"{self.base_url}/chat/completions"
