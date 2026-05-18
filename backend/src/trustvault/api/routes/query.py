@@ -45,7 +45,10 @@ SCENARIOS: list[dict[str, Any]] = [
     {"group": "Payload metadata checks", "examples": ["Use TrustVault to show metadata for object OBJ-000001 for entity CUST-000001.", "Use TrustVault to show the filename, document type, category, source system, SHA-256 and safe preview for object OBJ-000001 for CUST-000001.", "Use TrustVault to show the retention metadata and legal hold status for object OBJ-000001 for CUST-000001."]},
 ]
 
-STOP_WORDS = {"show", "me", "all", "the", "for", "of", "and", "or", "in", "to", "a", "an", "use", "trustvault", "evidence", "documentation", "documents", "client", "clients", "customer", "customers"}
+STOP_WORDS = {
+    "show", "me", "all", "the", "for", "of", "and", "or", "in", "to", "a", "an", "use", "trustvault",
+    "evidence", "documentation", "documents", "document", "client", "clients", "customer", "customers", "who", "are", "is", "with",
+}
 ONBOARDING_CATEGORIES = {"customer_documents", "identity", "proof_of_address", "source_of_wealth", "cdd_review", "communications"}
 
 
@@ -87,7 +90,12 @@ def _normalise_ai_payload(ai_payload: dict[str, Any], deterministic: StructuredQ
     document_types = ai_payload.get("document_types") if isinstance(ai_payload.get("document_types"), list) else det.get("document_types")
     categories = ai_payload.get("categories") if isinstance(ai_payload.get("categories"), list) else det.get("categories")
     search_terms = ai_payload.get("search_terms") if isinstance(ai_payload.get("search_terms"), list) else det.get("search_terms")
-    capability = ai_payload.get("capability") if ai_payload.get("capability") in {"evidence_search", "completeness_check", "entity_discovery", "archive_status", "payload_metadata"} else det.get("capability")
+    ai_capability = ai_payload.get("capability")
+    capability = ai_capability if ai_capability in {"evidence_search", "completeness_check", "entity_discovery", "archive_status", "payload_metadata"} else det.get("capability")
+
+    if det.get("capability") == "entity_discovery" and not snapshot_id and not document_types and not categories:
+        capability = "entity_discovery"
+        search_terms = []
 
     if "onboarding" in lower or snapshot_id == "ONBOARDING":
         snapshot_id = "ONBOARDING"
@@ -97,7 +105,9 @@ def _normalise_ai_payload(ai_payload: dict[str, Any], deterministic: StructuredQ
             search_terms = ["onboarding documentation"]
 
     execute_with = ai_payload.get("execute_with") if ai_payload.get("execute_with") in {"direct_fits", "fits_index"} else det.get("execute_with")
-    if entity_external_id and capability != "completeness_check":
+    if capability == "entity_discovery":
+        execute_with = "fits_index"
+    elif entity_external_id and capability != "completeness_check":
         execute_with = "direct_fits"
     elif not entity_external_id:
         execute_with = "fits_index"
@@ -112,7 +122,7 @@ def _normalise_ai_payload(ai_payload: dict[str, Any], deterministic: StructuredQ
         snapshot_id=snapshot_id,
         document_types=document_types or [],
         categories=categories or [],
-        search_terms=search_terms or det.get("search_terms") or [raw_query],
+        search_terms=search_terms or ([] if capability == "entity_discovery" else det.get("search_terms") or [raw_query]),
         completeness_only=bool(ai_payload.get("completeness_only", det.get("completeness_only"))),
         missing_evidence_type=ai_payload.get("missing_evidence_type") or det.get("missing_evidence_type"),
         execute_with=execute_with,
@@ -182,14 +192,14 @@ def _safe_summary_row(row: dict[str, Any]) -> dict[str, Any]:
     nested = metadata.get("metadata") if isinstance(metadata.get("metadata"), dict) else {}
     text_preview = nested.get("search_text") or metadata.get("search_text") or row.get("text_content") or row.get("snippet") or ""
     return {
-        "entity_external_id": row.get("entity_external_id"),
-        "entity_display_name": row.get("entity_display_name"),
+        "entity_external_id": row.get("entity_external_id") or row.get("external_id"),
+        "entity_display_name": row.get("entity_display_name") or row.get("display_name"),
         "filename": row.get("filename"),
-        "object_type": row.get("object_type"),
+        "object_type": row.get("object_type") or row.get("entity_type"),
         "category": metadata.get("category") or nested.get("category"),
         "document_type": metadata.get("document_type") or nested.get("document_type"),
-        "jurisdiction": metadata.get("jurisdiction") or nested.get("jurisdiction"),
-        "risk_rating": metadata.get("risk_rating") or nested.get("risk_rating"),
+        "jurisdiction": row.get("jurisdiction") or metadata.get("jurisdiction") or nested.get("jurisdiction"),
+        "risk_rating": row.get("risk_rating") or metadata.get("risk_rating") or nested.get("risk_rating"),
         "retention_class": metadata.get("retention_class") or nested.get("retention_class"),
         "legal_hold_status": metadata.get("legal_hold_status") or nested.get("legal_hold_status"),
         "source_system": row.get("source_system"),
@@ -211,6 +221,49 @@ def _metadata_value(row: dict[str, Any], key: str) -> Any:
     if metadata.get(key) not in (None, ""):
         return metadata.get(key)
     return nested.get(key)
+
+
+def _customer_row(customer: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "entity_id": customer.get("id"),
+        "entity_external_id": customer.get("external_id"),
+        "entity_display_name": customer.get("display_name"),
+        "external_id": customer.get("external_id"),
+        "display_name": customer.get("display_name"),
+        "entity_type": customer.get("entity_type"),
+        "status": customer.get("status"),
+        "risk_rating": customer.get("risk_rating"),
+        "jurisdiction": customer.get("jurisdiction"),
+        "evidence_object_count": customer.get("evidence_object_count"),
+        "has_current_fits_container": customer.get("has_current_fits_container"),
+        "current_container_version_id": customer.get("current_container_version_id"),
+        "current_container_version_number": customer.get("current_container_version_number"),
+        "current_container_storage_uri": customer.get("current_container_storage_uri"),
+        "metadata_json": customer.get("metadata_json"),
+    }
+
+
+def _entity_discovery_result(service: TrustVaultFeatureService, structured: StructuredQuery, limit: int) -> dict[str, Any]:
+    customers = service.customers(risk_rating=structured.risk_rating, jurisdiction=structured.jurisdiction, limit=limit)
+    rows = [_customer_row(customer) for customer in customers]
+    return {
+        "query": structured.raw_query,
+        "entity_id": None,
+        "entity_external_id": None,
+        "container_version_id": None,
+        "result_count": len(rows),
+        "results": rows,
+        "filtered_entity_count": len(rows),
+        "diagnostics": {
+            "entity_filter_applied": bool(structured.risk_rating or structured.jurisdiction),
+            "requested_risk_rating": structured.risk_rating,
+            "requested_jurisdiction": structured.jurisdiction,
+            "matching_entity_count": len(rows),
+            "matching_entity_external_ids": [row["entity_external_id"] for row in rows],
+            "execution_mode": "entity_discovery",
+            "evidence_text_filter_applied": False,
+        },
+    }
 
 
 def _row_matches_cohort(entity: Entity, row: dict[str, Any], structured: StructuredQuery, allowed_external_ids: set[str]) -> tuple[bool, str]:
@@ -450,6 +503,25 @@ def execute_query(
     sq = structured.to_dict()
     terms = structured.search_terms or [request.query]
     search_query = " ".join(terms)
+
+    if structured.capability == "entity_discovery":
+        result = _entity_discovery_result(service, structured, request.limit)
+        execution_source = "entity_metadata"
+        rows = result.get("results", [])
+        audit_logger.log(
+            SEARCH_EXECUTED,
+            raw_query=request.query,
+            structured_query=sq,
+            result_count=result.get("result_count", 0),
+            search_source=execution_source,
+            entity_ids=[row.get("entity_id") for row in rows],
+            ai_used=meta["ai_used"],
+            ai_provider=meta.get("ai_provider"),
+            ai_model=meta.get("ai_model"),
+            metadata={"query_mode": structured.execute_with, "interpretation": meta, "diagnostics": result.get("diagnostics")},
+        )
+        summary = _summarise_if_requested(request, rows, db, execution_source, audit_logger)
+        return {"structured_query": sq, "interpretation": meta, "execution_source": execution_source, "result": result, "ai_summary": summary}
 
     if structured.capability == "completeness_check":
         if structured.entity_external_id:
