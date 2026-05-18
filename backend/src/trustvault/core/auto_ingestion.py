@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from trustvault.core.app_settings import AppSettingsService
 from trustvault.core.container_builder import EntityContainerBuilder
 from trustvault.core.fits_reader import FitsContainerReader
+from trustvault.core.hashing import sha256_bytes
 from trustvault.core.source_folder_ingestion import SourceFolderIngestionService
 
 
@@ -41,13 +42,20 @@ class DropFolderIngestionService:
             "poll_seconds": values.get("auto_ingestion_poll_seconds"),
             "strict_structure": values.get("auto_ingestion_strict_structure"),
             "folders": {name: str(path) for name, path in folders.items()},
-            "folder_state": {name: {"exists": path.exists(), "zip_count": len(list(path.glob("*.zip"))) if path.exists() else 0} for name, path in folders.items()},
+            "folder_state": {
+                name: {
+                    "exists": path.exists(),
+                    "zip_count": len(list(path.glob("*.zip"))) if path.exists() else 0,
+                    "sidecar_count": len(list(path.glob("*.zip.json"))) if path.exists() else 0,
+                }
+                for name, path in folders.items()
+            },
         }
 
     def scan_once(self) -> dict[str, Any]:
         values = self.settings.effective_values()
         if not values.get("auto_ingestion_enabled", True):
-            return {"enabled": False, "processed_count": 0, "failed_count": 0, "results": []}
+            return {"enabled": False, "processed_count": 0, "duplicate_count": 0, "failed_count": 0, "results": []}
 
         folders = self._folders(values)
         for folder in folders.values():
@@ -55,6 +63,7 @@ class DropFolderIngestionService:
 
         results: list[dict[str, Any]] = []
         processed_count = 0
+        duplicate_count = 0
         failed_count = 0
         for zip_path in sorted(folders["drop"].glob("*.zip")):
             result = self.process_zip(
@@ -67,9 +76,11 @@ class DropFolderIngestionService:
             results.append(result)
             if result["status"] == "processed":
                 processed_count += 1
+            elif result["status"] == "duplicate":
+                duplicate_count += 1
             else:
                 failed_count += 1
-        return {"enabled": True, "processed_count": processed_count, "failed_count": failed_count, "results": results}
+        return {"enabled": True, "processed_count": processed_count, "duplicate_count": duplicate_count, "failed_count": failed_count, "results": results}
 
     def process_zip(
         self,
@@ -81,13 +92,36 @@ class DropFolderIngestionService:
         rebuild_index: bool,
     ) -> dict[str, Any]:
         processing_path = self._unique_path(folders["processing"] / zip_path.name)
-        moved_final_path: Path | None = None
         started_at = datetime.now(timezone.utc).isoformat()
         try:
+            zip_sha256 = sha256_bytes(zip_path.read_bytes())
             shutil.move(str(zip_path), processing_path)
             validation = self.validate_zip(processing_path)
             if strict_structure and not validation.valid:
                 raise ValueError("Invalid source folder ZIP structure: " + "; ".join(validation.errors))
+
+            prior = self._find_prior_zip_fingerprint(zip_sha256, folders)
+            if prior is not None:
+                duplicate_path = self._unique_path(folders["processed"] / processing_path.name)
+                shutil.move(str(processing_path), duplicate_path)
+                sidecar_payload = {
+                    "status": "duplicate",
+                    "started_at": started_at,
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "zip_sha256": zip_sha256,
+                    "validation": validation.__dict__,
+                    "duplicate_of": prior,
+                    "message": "Exact ZIP fingerprint was already processed; ingestion and FITS rebuild skipped.",
+                }
+                self._write_sidecar(duplicate_path, sidecar_payload)
+                return {
+                    "filename": zip_path.name,
+                    "status": "duplicate",
+                    "moved_to": str(duplicate_path),
+                    "zip_sha256": zip_sha256,
+                    "validation": validation.__dict__,
+                    "duplicate_of": prior,
+                }
 
             zip_bytes = processing_path.read_bytes()
             ingestion_result = SourceFolderIngestionService(self.db).ingest_zip_bytes(zip_bytes)
@@ -98,21 +132,25 @@ class DropFolderIngestionService:
             if ingestion_result.evidence_object_count > 0 and rebuild_index:
                 index = FitsContainerReader(self.db).rebuild_index_from_current_fits(ingestion_result.entity_external_id)
 
+            status = "processed" if ingestion_result.evidence_object_count > 0 else "duplicate"
             moved_final_path = self._unique_path(folders["processed"] / processing_path.name)
             shutil.move(str(processing_path), moved_final_path)
             self._write_sidecar(moved_final_path, {
-                "status": "processed",
+                "status": status,
                 "started_at": started_at,
                 "completed_at": datetime.now(timezone.utc).isoformat(),
+                "zip_sha256": zip_sha256,
                 "validation": validation.__dict__,
                 "ingestion": ingestion_result.__dict__,
                 "container": container,
                 "index": index,
+                "message": "All evidence payloads already existed; FITS rebuild skipped." if status == "duplicate" else "Ingestion completed.",
             })
             return {
                 "filename": zip_path.name,
-                "status": "processed",
+                "status": status,
                 "moved_to": str(moved_final_path),
+                "zip_sha256": zip_sha256,
                 "validation": validation.__dict__,
                 "ingestion": ingestion_result.__dict__,
                 "container": container,
@@ -158,6 +196,25 @@ class DropFolderIngestionService:
                 return DropFolderValidation(valid=not errors, root=root.rstrip("/"), errors=errors, warnings=warnings, file_count=len(relative_names))
         except zipfile.BadZipFile:
             return DropFolderValidation(valid=False, root="", errors=["File is not a valid ZIP archive"], warnings=[], file_count=0)
+
+    def _find_prior_zip_fingerprint(self, zip_sha256: str, folders: dict[str, Path]) -> dict[str, Any] | None:
+        for folder_name in ("processed", "failed"):
+            folder = folders[folder_name]
+            if not folder.exists():
+                continue
+            for sidecar in folder.glob("*.zip.json"):
+                try:
+                    payload = json.loads(sidecar.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                if payload.get("zip_sha256") == zip_sha256 and payload.get("status") in {"processed", "duplicate"}:
+                    return {
+                        "folder": folder_name,
+                        "sidecar": str(sidecar),
+                        "status": payload.get("status"),
+                        "completed_at": payload.get("completed_at"),
+                    }
+        return None
 
     def _folders(self, values: dict[str, Any]) -> dict[str, Path]:
         return {
