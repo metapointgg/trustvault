@@ -1,6 +1,5 @@
 import 'package:go_router/go_router.dart';
 
-import '../features/api/api_console_screen.dart';
 import '../features/audit/audit_screen.dart';
 import '../features/comparison/comparison_screen.dart';
 import '../features/completeness/completeness_screen.dart';
@@ -40,6 +39,7 @@ final appRouter = GoRouter(
         GoRoute(path: '/customers', builder: (context, state) => const EntitiesScreen()),
         GoRoute(path: '/entities', builder: (context, state) => const EntitiesScreen()),
         GoRoute(path: '/search', builder: (context, state) => const SearchScreen()),
+        GoRoute(path: '/api', redirect: (context, state) => '/search'),
         GoRoute(path: '/completeness', builder: (context, state) => const CompletenessScreen()),
         GoRoute(path: '/rulesets', builder: (context, state) => const RulesetsScreen()),
         GoRoute(path: '/ingestion', builder: (context, state) => const SourceFolderUploadScreen()),
@@ -47,7 +47,6 @@ final appRouter = GoRouter(
         GoRoute(path: '/retention', builder: (context, state) => const RetentionScreen()),
         GoRoute(path: '/integrity', builder: (context, state) => const IntegrityScreen()),
         GoRoute(path: '/export', builder: (context, state) => const FitsExportScreen()),
-        GoRoute(path: '/api', builder: (context, state) => const ApiConsoleScreen()),
         GoRoute(path: '/fits', builder: (context, state) => const FitsOperationsScreen()),
         GoRoute(path: '/jobs', builder: (context, state) => const JobsScreen()),
         GoRoute(path: '/users', builder: (context, state) => const UserAdminScreen()),
