@@ -161,9 +161,11 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_customerFilter.isEmpty) return rows.take(12).toList();
     return rows.where((row) {
       final haystack = '${row['external_id']} ${row['display_name']} ${row['risk_rating']} ${row['jurisdiction']}'.toLowerCase();
-      return haystack.contains(_customerFilter);
+      return haystack.contains(_filter);
     }).take(20).toList();
   }
+
+  String get _filter => _customerFilter;
 
   @override
   Widget build(BuildContext context) {
@@ -485,7 +487,7 @@ class _UnifiedResultView extends StatelessWidget {
     final diagnostics = executionResult['diagnostics'] as Map<String, dynamic>?;
     final rows = (executionResult['results'] as List<dynamic>? ?? <dynamic>[]).whereType<Map<String, dynamic>>().toList();
     final executionSource = result['execution_source'] ?? executionResult['execution_source'] ?? 'fits_index';
-    final summaryText = aiSummary == null ? null : '${aiSummary['summary'] ?? aiSummary['warning'] ?? ''}';
+    final summaryText = _searchSummaryText(aiSummary: aiSummary, rows: rows, executionResult: executionResult, executionSource: '$executionSource');
 
     return Card(
       child: Padding(
@@ -531,6 +533,55 @@ class _UnifiedResultView extends StatelessWidget {
       ),
     );
   }
+}
+
+String? _searchSummaryText({required Map<String, dynamic>? aiSummary, required List<Map<String, dynamic>> rows, required Map<String, dynamic> executionResult, required String executionSource}) {
+  if (aiSummary == null) return null;
+  final raw = '${aiSummary['summary'] ?? aiSummary['warning'] ?? ''}'.trim();
+  if (raw.isEmpty) return null;
+  if (_looksLikeRowDump(raw)) return _conciseEvidenceSummary(rows: rows, executionResult: executionResult, executionSource: executionSource);
+  return raw;
+}
+
+bool _looksLikeRowDump(String value) {
+  final lower = value.toLowerCase();
+  return lower.startsWith('fits_index:') || lower.startsWith('direct_fits_container:') || lower.contains('; sha256=') || lower.contains('entity_external_id=');
+}
+
+String _conciseEvidenceSummary({required List<Map<String, dynamic>> rows, required Map<String, dynamic> executionResult, required String executionSource}) {
+  final total = executionResult['result_count'] ?? rows.length;
+  final entities = <String>{};
+  final categories = <String, int>{};
+  final documentTypes = <String, int>{};
+  final examples = <String>[];
+
+  for (final row in rows) {
+    final metadata = row['metadata'] as Map<String, dynamic>? ?? <String, dynamic>{};
+    final nested = metadata['metadata'] as Map<String, dynamic>? ?? <String, dynamic>{};
+    final entity = '${row['entity_external_id'] ?? metadata['entity_external_id'] ?? nested['entity_external_id'] ?? ''}'.trim();
+    final category = '${row['category'] ?? metadata['category'] ?? nested['category'] ?? ''}'.trim();
+    final documentType = '${row['document_type'] ?? metadata['document_type'] ?? nested['document_type'] ?? row['object_type'] ?? ''}'.trim();
+    final filename = '${row['filename'] ?? metadata['filename'] ?? nested['filename'] ?? ''}'.trim();
+    if (entity.isNotEmpty) entities.add(entity);
+    if (category.isNotEmpty) categories[category] = (categories[category] ?? 0) + 1;
+    if (documentType.isNotEmpty) documentTypes[documentType] = (documentTypes[documentType] ?? 0) + 1;
+    if (filename.isNotEmpty && examples.length < 5) examples.add(filename);
+  }
+
+  final lines = <String>[
+    'TrustVault found $total evidence row${total == 1 ? '' : 's'} from $executionSource across ${entities.length} customer${entities.length == 1 ? '' : 's'}.',
+  ];
+  if (entities.isNotEmpty) lines.add('Customers: ${entities.take(8).join(', ')}${entities.length > 8 ? '…' : ''}.');
+  if (categories.isNotEmpty) lines.add('Categories: ${_countsText(categories)}.');
+  if (documentTypes.isNotEmpty) lines.add('Document types: ${_countsText(documentTypes)}.');
+  if (examples.isNotEmpty) lines.add('Example files: ${examples.join(', ')}${rows.length > examples.length ? '…' : ''}.');
+  lines.add('Use the results grid for the full evidence list, previews and SHA-256 details. The preserved FITS evidence and payload hashes remain the source of truth.');
+  return lines.join('\n');
+}
+
+String _countsText(Map<String, int> counts) {
+  final sorted = counts.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+  return sorted.take(6).map((entry) => '${entry.key} (${entry.value})').join(', ');
 }
 
 class _ResultsTable extends StatelessWidget {
