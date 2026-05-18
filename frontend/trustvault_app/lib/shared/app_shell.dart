@@ -53,7 +53,7 @@ class _TopBanner extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('TrustVault Control Centre', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
-                    Text('FITS evidence archive, assurance controls and regulator-ready retrieval', style: Theme.of(context).textTheme.bodySmall),
+                    Text('Evidence archive, assurance controls and regulator-ready retrieval', style: Theme.of(context).textTheme.bodySmall),
                   ],
                 ),
               ),
@@ -66,9 +66,9 @@ class _TopBanner extends StatelessWidget {
               PopupMenuButton<String>(
                 tooltip: 'User profile',
                 onSelected: (value) {
-                  if (value == 'sign_out') {
-                    AuthController.instance.signOut();
-                  }
+                  if (value == 'users') context.go('/users');
+                  if (value == 'settings') context.go('/settings');
+                  if (value == 'sign_out') AuthController.instance.signOut();
                 },
                 itemBuilder: (context) => [
                   PopupMenuItem<String>(
@@ -81,6 +81,9 @@ class _TopBanner extends StatelessWidget {
                       ],
                     ),
                   ),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem<String>(value: 'users', child: Text('User admin')),
+                  const PopupMenuItem<String>(value: 'settings', child: Text('Settings')),
                   const PopupMenuDivider(),
                   const PopupMenuItem<String>(value: 'sign_out', child: Text('Sign out')),
                 ],
@@ -148,7 +151,7 @@ class _SideNavigation extends StatelessWidget {
           _NavItem(path: '/', label: 'Dashboard', icon: Icons.dashboard_outlined, currentPath: currentPath),
           _NavGroup(
             title: 'Archive',
-            initiallyExpanded: _isInGroup(['/health', '/customers', '/search', '/api'], currentPath),
+            initiallyExpanded: _isInGroup(['/health', '/customers', '/search'], currentPath),
             children: [
               _NavItem(path: '/health', label: 'Health', icon: Icons.health_and_safety_outlined, currentPath: currentPath),
               _NavItem(path: '/customers', label: 'Customers', icon: Icons.business_outlined, currentPath: currentPath),
@@ -156,34 +159,31 @@ class _SideNavigation extends StatelessWidget {
             ],
           ),
           _NavGroup(
-            title: 'Customer assurance',
-            initiallyExpanded: _isInGroup(['/comparison', '/completeness', '/extraction', '/retention', '/integrity'], currentPath),
+            title: 'Assurance',
+            initiallyExpanded: _isInGroup(['/completeness', '/extraction', '/retention', '/integrity'], currentPath),
             children: [
-              _NavItem(path: '/comparison', label: 'Comparison', icon: Icons.compare_arrows_outlined, currentPath: currentPath),
               _NavItem(path: '/completeness', label: 'Completeness', icon: Icons.rule_folder_outlined, currentPath: currentPath),
               _NavItem(path: '/extraction', label: 'Extraction', icon: Icons.document_scanner_outlined, currentPath: currentPath),
-              _NavItem(path: '/retention', label: 'Retention', icon: Icons.policy_outlined, currentPath: currentPath),
+              _NavItem(path: '/retention', label: 'Legal Hold & Retention', icon: Icons.policy_outlined, currentPath: currentPath),
               _NavItem(path: '/integrity', label: 'Integrity', icon: Icons.verified_outlined, currentPath: currentPath),
             ],
           ),
           _NavGroup(
             title: 'Operations',
-            initiallyExpanded: _isInGroup(['/ingestion', '/export', '/fits', '/jobs'], currentPath),
+            initiallyExpanded: _isInGroup(['/ingestion', '/export'], currentPath),
             children: [
               _NavItem(path: '/ingestion', label: 'Ingestion', icon: Icons.upload_file_outlined, currentPath: currentPath),
               _NavItem(path: '/export', label: 'Export', icon: Icons.file_download_outlined, currentPath: currentPath),
-              _NavItem(path: '/fits', label: 'FITS', icon: Icons.data_object_outlined, currentPath: currentPath),
-              _NavItem(path: '/jobs', label: 'Jobs', icon: Icons.work_history_outlined, currentPath: currentPath),
             ],
           ),
           _NavGroup(
-            title: 'Governance',
+            title: 'Administration',
             initiallyExpanded: _isInGroup(['/rulesets', '/audit', '/licence', '/users', '/settings'], currentPath),
             children: [
               _NavItem(path: '/rulesets', label: 'Rulesets', icon: Icons.fact_check_outlined, currentPath: currentPath),
               _NavItem(path: '/users', label: 'User Admin', icon: Icons.manage_accounts_outlined, currentPath: currentPath),
               _NavItem(path: '/settings', label: 'Settings', icon: Icons.settings_outlined, currentPath: currentPath),
-              _NavItem(path: '/audit', label: 'Audit', icon: Icons.history_edu_outlined, currentPath: currentPath),
+              _NavItem(path: '/audit', label: 'Audit Log', icon: Icons.history_edu_outlined, currentPath: currentPath),
               _NavItem(path: '/licence', label: 'Licence', icon: Icons.key_outlined, currentPath: currentPath),
             ],
           ),
