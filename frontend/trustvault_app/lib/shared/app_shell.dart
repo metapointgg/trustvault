@@ -86,9 +86,7 @@ class _TopBanner extends StatelessWidget {
                 ],
                 child: Row(
                   children: [
-                    CircleAvatar(
-                      child: Text(_initials(session?.displayName ?? session?.email ?? 'U')),
-                    ),
+                    CircleAvatar(child: Text(_initials(session?.displayName ?? session?.email ?? 'U'))),
                     const SizedBox(width: 8),
                     Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -181,10 +179,11 @@ class _SideNavigation extends StatelessWidget {
           ),
           _NavGroup(
             title: 'Governance',
-            initiallyExpanded: _isInGroup(['/rulesets', '/audit', '/licence', '/users'], currentPath),
+            initiallyExpanded: _isInGroup(['/rulesets', '/audit', '/licence', '/users', '/settings'], currentPath),
             children: [
               _NavItem(path: '/rulesets', label: 'Rulesets', icon: Icons.fact_check_outlined, currentPath: currentPath),
               _NavItem(path: '/users', label: 'User Admin', icon: Icons.manage_accounts_outlined, currentPath: currentPath),
+              _NavItem(path: '/settings', label: 'Settings', icon: Icons.settings_outlined, currentPath: currentPath),
               _NavItem(path: '/audit', label: 'Audit', icon: Icons.history_edu_outlined, currentPath: currentPath),
               _NavItem(path: '/licence', label: 'Licence', icon: Icons.key_outlined, currentPath: currentPath),
             ],
