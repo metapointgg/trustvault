@@ -5,6 +5,7 @@ from trustvault.api.routes import (
     api_status,
     audit,
     auth,
+    auto_ingestion,
     comparison,
     completeness,
     containers,
@@ -23,6 +24,7 @@ from trustvault.api.routes import (
     query,
     retention,
     rulesets,
+    settings as settings_routes,
 )
 from trustvault.auth.local_auth import LocalAuthService
 from trustvault.db.bootstrap import initialise_database
@@ -57,6 +59,8 @@ app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(dashboard.router)
 app.include_router(api_status.router)
+app.include_router(settings_routes.router)
+app.include_router(auto_ingestion.router)
 app.include_router(query.router)
 app.include_router(customers.router)
 app.include_router(comparison.router)
