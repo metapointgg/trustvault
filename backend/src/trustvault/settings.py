@@ -58,6 +58,16 @@ class Settings(BaseSettings):
 
     export_approval_required: bool = False
 
+    auto_ingestion_enabled: bool = True
+    auto_ingestion_poll_seconds: int = 10
+    auto_ingestion_drop_folder: str = "./local-data/drop-folder/incoming"
+    auto_ingestion_processing_folder: str = "./local-data/drop-folder/processing"
+    auto_ingestion_processed_folder: str = "./local-data/drop-folder/processed"
+    auto_ingestion_failed_folder: str = "./local-data/drop-folder/failed"
+    auto_ingestion_strict_structure: bool = True
+    auto_ingestion_rebuild_container: bool = True
+    auto_ingestion_rebuild_index: bool = True
+
     model_config = SettingsConfigDict(
         env_prefix="TRUSTVAULT_",
         env_file=".env",
