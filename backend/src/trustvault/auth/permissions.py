@@ -4,7 +4,7 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         "customers:read", "evidence:read", "evidence:preview", "search:execute",
         "ingestion:submit", "containers:rebuild", "integrity:run", "rulesets:edit",
         "completeness:run", "retention:manage", "export:request", "export:approve",
-        "audit:read", "licence:admin",
+        "audit:read", "licence:admin", "settings:read",
     ],
     "Compliance Analyst": [
         "customers:read", "evidence:read", "evidence:preview", "search:execute",
@@ -14,7 +14,7 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         "customers:read", "evidence:read", "search:execute", "audit:read", "integrity:run",
     ],
     "Ingestion Operator": [
-        "customers:read", "evidence:read", "ingestion:submit", "containers:rebuild",
+        "customers:read", "evidence:read", "ingestion:submit", "containers:rebuild", "settings:read",
     ],
     "Export Approver": [
         "customers:read", "evidence:read", "evidence:preview", "export:request", "export:approve",
