@@ -182,6 +182,21 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(200), primary_key=True)
+    value_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    value_type: Mapped[str] = mapped_column(String(50), nullable=False, default="string")
+    category: Mapped[str] = mapped_column(String(100), nullable=False, default="general")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_secret: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_editable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    updated_by_user_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class Job(Base):
     __tablename__ = "jobs"
 
