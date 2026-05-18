@@ -1,7 +1,9 @@
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from trustvault.ai.lm_studio import LmStudioAiProvider
@@ -12,6 +14,7 @@ from trustvault.core.app_settings import AppSettingsService
 from trustvault.core.feature_services import TrustVaultFeatureService
 from trustvault.core.fits_reader import FitsContainerReader
 from trustvault.core.query_interpreter import StructuredQuery, TrustVaultQueryInterpreter
+from trustvault.db.models import Entity, FitsIndexEntry
 
 router = APIRouter(prefix="/api/v1/query", tags=["query"])
 
@@ -42,6 +45,9 @@ SCENARIOS: list[dict[str, Any]] = [
     {"group": "Payload metadata checks", "examples": ["Use TrustVault to show metadata for object OBJ-000001 for entity CUST-000001.", "Use TrustVault to show the filename, document type, category, source system, SHA-256 and safe preview for object OBJ-000001 for CUST-000001.", "Use TrustVault to show the retention metadata and legal hold status for object OBJ-000001 for CUST-000001."]},
 ]
 
+STOP_WORDS = {"show", "me", "all", "the", "for", "of", "and", "or", "in", "to", "a", "an", "use", "trustvault", "evidence", "documentation", "documents", "client", "clients", "customer", "customers"}
+ONBOARDING_CATEGORIES = {"customer_documents", "identity", "proof_of_address", "source_of_wealth", "cdd_review", "communications"}
+
 
 def _settings_values(db: Session) -> dict[str, Any]:
     return AppSettingsService(db).effective_values()
@@ -51,6 +57,14 @@ def _ai_enabled_for_mode(mode: str, values: dict[str, Any]) -> bool:
     if mode == "deterministic":
         return False
     return str(values.get("ai_provider", "none")).lower() in {"lm_studio", "lmstudio"}
+
+
+def _norm(value: Any) -> str:
+    return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _text_norm(value: Any) -> str:
+    return str(value or "").strip().lower()
 
 
 def _normalise_ai_payload(ai_payload: dict[str, Any], deterministic: StructuredQuery) -> StructuredQuery:
@@ -134,11 +148,7 @@ def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]],
         return None
     values = _settings_values(db)
     if str(values.get("ai_provider", "none")).lower() not in {"lm_studio", "lmstudio"}:
-        return {
-            "available": False,
-            "warning": "AI summary requested but effective ai_provider is not lm_studio.",
-            "effective_ai_provider": values.get("ai_provider"),
-        }
+        return {"available": False, "warning": "AI summary requested but effective ai_provider is not lm_studio.", "effective_ai_provider": values.get("ai_provider")}
     if not rows:
         return {"available": False, "warning": "No evidence rows were returned to summarise."}
     ai = LmStudioAiProvider(str(values.get("lm_studio_base_url") or "http://localhost:1234"), model=str(values.get("lm_studio_model") or values.get("lm_studio_query_model") or ""))
@@ -175,6 +185,155 @@ def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]],
         "evidence_row_count": min(len(rows), 25),
         "source_of_truth_notice": "The preserved FITS evidence and payload hashes remain the source of truth.",
     }
+
+
+def _structured_index_search(db: Session, service: TrustVaultFeatureService, structured: StructuredQuery, query: str, limit: int) -> dict[str, Any]:
+    customers = service.customers(risk_rating=structured.risk_rating, jurisdiction=structured.jurisdiction)
+    entity_filter_applied = bool(structured.risk_rating or structured.jurisdiction)
+    allowed_external_ids = {customer["external_id"] for customer in customers}
+    allowed_by_id = {customer["id"]: customer for customer in customers}
+    diagnostics = {
+        "entity_filter_applied": entity_filter_applied,
+        "requested_risk_rating": structured.risk_rating,
+        "requested_jurisdiction": structured.jurisdiction,
+        "matching_entity_count": len(customers),
+        "matching_entity_external_ids": sorted(allowed_external_ids)[:100],
+        "metadata_filter_applied": bool(structured.categories or structured.document_types or structured.snapshot_id),
+        "categories": structured.categories,
+        "document_types": structured.document_types,
+        "snapshot_id": structured.snapshot_id,
+        "search_terms": structured.search_terms,
+    }
+    if entity_filter_applied and not customers:
+        return {"query": query, "entity_id": None, "entity_external_id": None, "container_version_id": None, "result_count": 0, "results": [], "filtered_entity_count": 0, "diagnostics": diagnostics}
+
+    statement = select(FitsIndexEntry).order_by(FitsIndexEntry.created_at.desc()).limit(5000)
+    entries = db.scalars(statement).all()
+    rows: list[dict[str, Any]] = []
+    for entry in entries:
+        entity = db.get(Entity, entry.entity_id)
+        if entity is None:
+            continue
+        if entity_filter_applied and entity.external_id not in allowed_external_ids:
+            continue
+        row = _row_from_index_entry(entry, entity)
+        match = _structured_row_match(row, structured)
+        if not match["matched"]:
+            continue
+        row["match_reason"] = match["reason"]
+        row["match_score"] = match["score"]
+        rows.append(row)
+
+    rows.sort(key=lambda item: (item.get("match_score", 0), item.get("entity_external_id", ""), item.get("filename", "")), reverse=True)
+    limited = rows[:limit]
+    diagnostics["candidate_index_entry_count"] = len(entries)
+    diagnostics["matched_before_limit"] = len(rows)
+    return {"query": query, "entity_id": None, "entity_external_id": None, "container_version_id": None, "result_count": len(limited), "results": limited, "filtered_entity_count": len(customers) if entity_filter_applied else None, "diagnostics": diagnostics}
+
+
+def _row_from_index_entry(entry: FitsIndexEntry, entity: Entity) -> dict[str, Any]:
+    metadata = entry.metadata_json or {}
+    searchable = "\n".join([entry.filename or "", entry.object_type or "", entry.source_system or "", entry.text_content or "", json.dumps(metadata, default=str)])
+    return {
+        "entity_id": str(entry.entity_id),
+        "entity_external_id": entity.external_id,
+        "entity_display_name": entity.display_name,
+        "container_version_id": str(entry.container_version_id),
+        "evidence_object_id": entry.evidence_object_id,
+        "hdu_name": entry.hdu_name,
+        "filename": entry.filename,
+        "object_type": entry.object_type,
+        "source_system": entry.source_system,
+        "sha256": entry.sha256,
+        "snippet": _snippet(searchable, ""),
+        "metadata": metadata,
+        "_searchable": searchable,
+    }
+
+
+def _structured_row_match(row: dict[str, Any], structured: StructuredQuery) -> dict[str, Any]:
+    metadata = row.get("metadata") or {}
+    nested_metadata = metadata.get("metadata") if isinstance(metadata.get("metadata"), dict) else {}
+    category = _norm(metadata.get("category") or nested_metadata.get("category") or row.get("object_type"))
+    document_type = _norm(metadata.get("document_type") or nested_metadata.get("document_type") or row.get("object_type"))
+    object_type = _norm(row.get("object_type"))
+    source_system = _norm(row.get("source_system"))
+    filename = _norm(row.get("filename"))
+    searchable = _text_norm(row.get("_searchable"))
+
+    categories = {_norm(item) for item in structured.categories if item}
+    document_types = {_norm(item) for item in structured.document_types if item}
+    terms = [_text_norm(item) for item in structured.search_terms if item]
+    onboarding = structured.snapshot_id == "ONBOARDING" or "onboarding" in _text_norm(structured.raw_query)
+    score = 0
+    reasons: list[str] = []
+
+    if onboarding:
+        allowed_categories = categories or ONBOARDING_CATEGORIES
+        if category in allowed_categories or category in ONBOARDING_CATEGORIES:
+            score += 70
+            reasons.append("onboarding_category")
+        elif any(value in filename for value in ["application", "onboarding", "screening", "passport", "address", "wealth", "cdd"]):
+            score += 45
+            reasons.append("onboarding_filename")
+    elif categories:
+        if category not in categories:
+            return {"matched": False, "score": 0, "reason": "category_filter_not_matched"}
+        score += 50
+        reasons.append("category")
+
+    if document_types:
+        if document_type in document_types or object_type in document_types:
+            score += 50
+            reasons.append("document_type")
+        elif not onboarding:
+            return {"matched": False, "score": 0, "reason": "document_type_filter_not_matched"}
+
+    term_match = _term_matches(terms, searchable)
+    if term_match:
+        score += 30
+        reasons.append("text")
+
+    if not categories and not document_types and not onboarding and not term_match:
+        return {"matched": False, "score": 0, "reason": "text_not_matched"}
+
+    if score <= 0:
+        return {"matched": False, "score": 0, "reason": "no_structured_match"}
+    row["snippet"] = _best_snippet(searchable, terms)
+    return {"matched": True, "score": score, "reason": ",".join(reasons)}
+
+
+def _term_matches(terms: list[str], searchable: str) -> bool:
+    if not terms:
+        return False
+    for term in terms:
+        if not term:
+            continue
+        if term in searchable:
+            return True
+        tokens = [token for token in term.replace("_", " ").split() if token not in STOP_WORDS and len(token) > 2]
+        if tokens and all(token in searchable for token in tokens):
+            return True
+    return False
+
+
+def _best_snippet(searchable: str, terms: list[str], window: int = 180) -> str:
+    for term in terms:
+        term = _text_norm(term)
+        if term and term in searchable:
+            return _snippet(searchable, term, window)
+    return searchable[: window * 2]
+
+
+def _snippet(text: str, normalised_query: str, window: int = 120) -> str:
+    if not normalised_query:
+        return text[: window * 2]
+    index = text.find(normalised_query)
+    if index < 0:
+        return text[: window * 2]
+    start = max(index - window, 0)
+    end = min(index + len(normalised_query) + window, len(text))
+    return f"{'...' if start > 0 else ''}{text[start:end]}{'...' if end < len(text) else ''}"
 
 
 @router.get("/archive/status")
@@ -227,7 +386,7 @@ def execute_query(
                     if run["missing_count"] <= 0:
                         continue
                 runs.append(run)
-            result = {"result_count": len(runs), "results": runs}
+            result = {"result_count": len(runs), "results": runs, "diagnostics": {"matching_entity_count": len(customers)}}
         execution_source = "completeness_rules"
         audit_logger.log(
             SEARCH_EXECUTED,
@@ -246,18 +405,14 @@ def execute_query(
     if structured.entity_external_id:
         try:
             result = reader.direct_search(structured.entity_external_id, search_query, request.limit)
+            if result.get("result_count", 0) == 0 and (structured.categories or structured.document_types or structured.snapshot_id == "ONBOARDING"):
+                result = _structured_index_search(db, service, structured, search_query, request.limit)
+                result["entity_external_id"] = structured.entity_external_id
             execution_source = "direct_fits_container"
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
     else:
-        if structured.risk_rating or structured.jurisdiction:
-            customers = service.customers(risk_rating=structured.risk_rating, jurisdiction=structured.jurisdiction)
-            entity_ids = {customer["external_id"] for customer in customers}
-            broad = reader.index_search(search_query, None, request.limit * 5)
-            filtered = [row for row in broad["results"] if row.get("entity_external_id") in entity_ids][: request.limit]
-            result = {**broad, "result_count": len(filtered), "results": filtered, "filtered_entity_count": len(entity_ids)}
-        else:
-            result = reader.index_search(search_query, None, request.limit)
+        result = _structured_index_search(db, service, structured, search_query, request.limit)
         execution_source = "fits_index"
 
     rows = result.get("results", [])
@@ -272,7 +427,7 @@ def execute_query(
         ai_used=meta["ai_used"],
         ai_provider=meta.get("ai_provider"),
         ai_model=meta.get("ai_model"),
-        metadata={"query_mode": structured.execute_with, "interpretation": meta},
+        metadata={"query_mode": structured.execute_with, "interpretation": meta, "diagnostics": result.get("diagnostics")},
     )
     summary = _summarise_if_requested(request, rows, db, execution_source, audit_logger)
     return {"structured_query": sq, "interpretation": meta, "execution_source": execution_source, "result": result, "ai_summary": summary}
