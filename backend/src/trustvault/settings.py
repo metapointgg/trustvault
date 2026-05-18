@@ -46,11 +46,15 @@ class Settings(BaseSettings):
 
     audit_enabled: bool = True
     auth_mode: str = "local"  # local, oidc, disabled
-    auth_required: bool = False
+    auth_required: bool = True
+    auth_token_secret: str | None = None
+    auth_token_ttl_minutes: int = 480
     oidc_issuer: str | None = None
     oidc_audience: str | None = None
     oidc_jwks_url: str | None = None
     local_admin_email: str = "admin@trustvault.local"
+    local_admin_password: str | None = None
+    local_admin_display_name: str = "TrustVault Administrator"
 
     export_approval_required: bool = False
 
