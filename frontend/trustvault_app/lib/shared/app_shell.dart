@@ -57,11 +57,7 @@ class _TopBanner extends StatelessWidget {
                   ],
                 ),
               ),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: roles.take(3).map((role) => Chip(label: Text(role), visualDensity: VisualDensity.compact)).toList(),
-              ),
+              Wrap(spacing: 6, runSpacing: 6, children: roles.take(3).map((role) => Chip(label: Text(role), visualDensity: VisualDensity.compact)).toList()),
               const SizedBox(width: 16),
               PopupMenuButton<String>(
                 tooltip: 'User profile',
@@ -151,10 +147,10 @@ class _SideNavigation extends StatelessWidget {
           _NavItem(path: '/', label: 'Dashboard', icon: Icons.dashboard_outlined, currentPath: currentPath),
           _NavGroup(
             title: 'Archive',
-            initiallyExpanded: _isInGroup(['/health', '/customers', '/search'], currentPath),
+            initiallyExpanded: _isInGroup(['/health', '/customers', '/entities', '/search'], currentPath),
             children: [
               _NavItem(path: '/health', label: 'Health', icon: Icons.health_and_safety_outlined, currentPath: currentPath),
-              _NavItem(path: '/customers', label: 'Customers', icon: Icons.business_outlined, currentPath: currentPath),
+              _NavItem(path: '/entities', label: 'Entities', icon: Icons.business_outlined, currentPath: currentPath),
               _NavItem(path: '/search', label: 'Search & Query', icon: Icons.manage_search_outlined, currentPath: currentPath),
             ],
           ),
@@ -192,9 +188,7 @@ class _SideNavigation extends StatelessWidget {
     );
   }
 
-  bool _isInGroup(List<String> paths, String currentPath) {
-    return paths.any((path) => currentPath == path || currentPath.startsWith('$path/'));
-  }
+  bool _isInGroup(List<String> paths, String currentPath) => paths.any((path) => currentPath == path || currentPath.startsWith('$path/'));
 }
 
 class _NavGroup extends StatelessWidget {
@@ -206,12 +200,7 @@ class _NavGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ExpansionTile(
-      initiallyExpanded: initiallyExpanded,
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-      childrenPadding: const EdgeInsets.only(bottom: 8),
-      children: children,
-    );
+    return ExpansionTile(initiallyExpanded: initiallyExpanded, title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)), childrenPadding: const EdgeInsets.only(bottom: 8), children: children);
   }
 }
 
@@ -225,7 +214,7 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selected = currentPath == path || (path != '/' && currentPath.startsWith('$path/'));
+    final selected = currentPath == path || (path != '/' && currentPath.startsWith('$path/')) || (path == '/entities' && currentPath == '/customers');
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       child: ListTile(
