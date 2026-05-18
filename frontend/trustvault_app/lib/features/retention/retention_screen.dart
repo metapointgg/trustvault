@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/trustvault_api_client.dart';
+import '../../shared/customer_selector_card.dart';
 import '../../shared/selected_customer.dart';
 
 class RetentionScreen extends StatefulWidget {
@@ -51,7 +52,13 @@ class _RetentionScreenState extends State<RetentionScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _Header(title: 'Retention', subtitle: 'Retention, sensitivity and legal-hold state from the selected customer FITS manifest.', onRefresh: _load),
+          _Header(title: 'Retention', subtitle: 'Retention, sensitivity and legal-hold state from one customer FITS manifest.', onRefresh: _load),
+          const SizedBox(height: 16),
+          CustomerSelectorCard(
+            title: 'Customer retention context',
+            subtitle: 'Retention rows are read from this customer current FITS archive manifest.',
+            onChanged: (_) => _load(),
+          ),
           const SizedBox(height: 24),
           Expanded(
             child: _future == null
@@ -60,30 +67,20 @@ class _RetentionScreenState extends State<RetentionScreen> {
                     key: ValueKey('retention-$_loadedFor'),
                     future: _future,
                     builder: (context, snapshot) {
-                      if (snapshot.connectionState != ConnectionState.done) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      if (snapshot.hasError) {
-                        return Center(child: Text('Unable to load retention report: ${snapshot.error}'));
-                      }
+                      if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
+                      if (snapshot.hasError) return Center(child: Text('Unable to load retention report: ${snapshot.error}'));
                       final evidence = _evidenceRows(snapshot.data ?? <String, dynamic>{});
-                      if (evidence.isEmpty) {
-                        return const Center(child: Text('No retention evidence rows found.'));
-                      }
+                      if (evidence.isEmpty) return const Center(child: Text('No retention evidence rows found.'));
                       final legalHoldCount = evidence.where((row) => '${row['legal_hold_status']}'.toLowerCase() != 'none').length;
                       final deletionEligibleCount = evidence.where((row) => row['deletion_eligible'] == true).length;
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              Chip(label: Text('Evidence rows: ${evidence.length}')),
-                              Chip(label: Text('Legal holds: $legalHoldCount')),
-                              Chip(label: Text('Deletion eligible: $deletionEligibleCount')),
-                            ],
-                          ),
+                          Wrap(spacing: 8, runSpacing: 8, children: [
+                            Chip(label: Text('Evidence rows: ${evidence.length}')),
+                            Chip(label: Text('Legal holds: $legalHoldCount')),
+                            Chip(label: Text('Deletion eligible: $deletionEligibleCount')),
+                          ]),
                           const SizedBox(height: 16),
                           Expanded(
                             child: Card(
@@ -101,17 +98,15 @@ class _RetentionScreenState extends State<RetentionScreen> {
                                       DataColumn(label: Text('Deletion eligible')),
                                     ],
                                     rows: evidence.map((row) {
-                                      return DataRow(
-                                        cells: [
-                                          DataCell(SizedBox(width: 260, child: Text('${row['filename'] ?? '-'}', overflow: TextOverflow.ellipsis))),
-                                          DataCell(Text('${row['category'] ?? '-'}')),
-                                          DataCell(Text('${row['document_type'] ?? '-'}')),
-                                          DataCell(Text('${row['retention_class'] ?? '-'}')),
-                                          DataCell(Text('${row['retention_until'] ?? '-'}')),
-                                          DataCell(_StatusPill(label: '${row['legal_hold_status'] ?? 'none'}', positive: '${row['legal_hold_status']}'.toLowerCase() == 'none')),
-                                          DataCell(_StatusPill(label: row['deletion_eligible'] == true ? 'Yes' : 'No', positive: row['deletion_eligible'] != true)),
-                                        ],
-                                      );
+                                      return DataRow(cells: [
+                                        DataCell(SizedBox(width: 260, child: Text('${row['filename'] ?? '-'}', overflow: TextOverflow.ellipsis))),
+                                        DataCell(Text('${row['category'] ?? '-'}')),
+                                        DataCell(Text('${row['document_type'] ?? '-'}')),
+                                        DataCell(Text('${row['retention_class'] ?? '-'}')),
+                                        DataCell(Text('${row['retention_until'] ?? '-'}')),
+                                        DataCell(_StatusPill(label: '${row['legal_hold_status'] ?? 'none'}', positive: '${row['legal_hold_status']}'.toLowerCase() == 'none')),
+                                        DataCell(_StatusPill(label: row['deletion_eligible'] == true ? 'Yes' : 'No', positive: row['deletion_eligible'] != true)),
+                                      ]);
                                     }).toList(),
                                   ),
                                 ),
@@ -148,16 +143,11 @@ class _Header extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 8),
-              Text(subtitle),
-              const SizedBox(height: 8),
-              Text('Customer: ${SelectedCustomerController.displayLabel}', style: Theme.of(context).textTheme.titleSmall),
-            ],
-          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            Text(subtitle),
+          ]),
         ),
         OutlinedButton.icon(onPressed: onRefresh, icon: const Icon(Icons.refresh), label: const Text('Refresh')),
       ],
@@ -176,10 +166,7 @@ class _StatusPill extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
-        color: positive ? scheme.primaryContainer : scheme.errorContainer,
-      ),
+      decoration: BoxDecoration(borderRadius: BorderRadius.circular(999), color: positive ? scheme.primaryContainer : scheme.errorContainer),
       child: Text(label, style: TextStyle(color: positive ? scheme.onPrimaryContainer : scheme.onErrorContainer)),
     );
   }
