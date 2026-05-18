@@ -1,196 +1,150 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../core/api/trustvault_api_client.dart';
-import 'selected_customer.dart';
-
-class AppShell extends StatefulWidget {
+class AppShell extends StatelessWidget {
   const AppShell({super.key, required this.child});
 
   final Widget child;
 
   @override
-  State<AppShell> createState() => _AppShellState();
-}
-
-class _AppShellState extends State<AppShell> {
-  final TrustVaultApiClient _apiClient = TrustVaultApiClient();
-  late Future<List<dynamic>> _customersFuture;
-
-  static const List<_Destination> _destinations = [
-    _Destination('/', 'Dashboard', Icons.dashboard_outlined, Icons.dashboard),
-    _Destination('/health', 'Health', Icons.health_and_safety_outlined, Icons.health_and_safety),
-    _Destination('/comparison', 'Comparison', Icons.compare_arrows_outlined, Icons.compare_arrows),
-    _Destination('/customers', 'Customers', Icons.business_outlined, Icons.business),
-    _Destination('/search', 'Search', Icons.manage_search_outlined, Icons.manage_search),
-    _Destination('/completeness', 'Completeness', Icons.rule_folder_outlined, Icons.rule_folder),
-    _Destination('/rulesets', 'Rulesets', Icons.fact_check_outlined, Icons.fact_check),
-    _Destination('/ingestion', 'Ingestion', Icons.upload_file_outlined, Icons.upload_file),
-    _Destination('/extraction', 'Extraction', Icons.document_scanner_outlined, Icons.document_scanner),
-    _Destination('/retention', 'Retention', Icons.policy_outlined, Icons.policy),
-    _Destination('/integrity', 'Integrity', Icons.verified_outlined, Icons.verified),
-    _Destination('/export', 'Export', Icons.file_download_outlined, Icons.file_download),
-    _Destination('/api', 'API', Icons.api_outlined, Icons.api),
-    _Destination('/fits', 'FITS', Icons.data_object_outlined, Icons.data_object),
-    _Destination('/jobs', 'Jobs', Icons.work_history_outlined, Icons.work_history),
-    _Destination('/audit', 'Audit', Icons.history_edu_outlined, Icons.history_edu),
-    _Destination('/licence', 'Licence', Icons.key_outlined, Icons.key),
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _customersFuture = _apiClient.getCustomers();
-    SelectedCustomerController.refreshToken.addListener(_refreshCustomers);
-  }
-
-  @override
-  void dispose() {
-    SelectedCustomerController.refreshToken.removeListener(_refreshCustomers);
-    super.dispose();
-  }
-
-  void _refreshCustomers() {
-    setState(() {
-      _customersFuture = _apiClient.getCustomers();
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).uri.path;
-
     return Scaffold(
       body: Row(
         children: [
-          NavigationRail(
-            extended: MediaQuery.of(context).size.width > 1160,
-            selectedIndex: _selectedIndex(location),
-            onDestinationSelected: (index) => context.go(_destinations[index].path),
-            leading: const Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
-              child: Icon(Icons.verified_user_outlined, size: 32),
-            ),
-            destinations: _destinations
-                .map(
-                  (item) => NavigationRailDestination(
-                    icon: Icon(item.icon),
-                    selectedIcon: Icon(item.selectedIcon),
-                    label: Text(item.label),
-                  ),
-                )
-                .toList(),
+          SizedBox(
+            width: 280,
+            child: _SideNavigation(currentPath: location),
           ),
           const VerticalDivider(width: 1),
-          Expanded(
-            child: Column(
-              children: [
-                _CustomerContextBar(customersFuture: _customersFuture, onRefresh: _refreshCustomers),
-                const Divider(height: 1),
-                Expanded(child: widget.child),
-              ],
-            ),
-          ),
+          Expanded(child: child),
         ],
       ),
     );
   }
-
-  int _selectedIndex(String location) {
-    for (var i = 0; i < _destinations.length; i++) {
-      final path = _destinations[i].path;
-      if (path == '/' && location == '/') return i;
-      if (path != '/' && location.startsWith(path)) return i;
-    }
-    return 0;
-  }
 }
 
-class _CustomerContextBar extends StatelessWidget {
-  const _CustomerContextBar({required this.customersFuture, required this.onRefresh});
+class _SideNavigation extends StatelessWidget {
+  const _SideNavigation({required this.currentPath});
 
-  final Future<List<dynamic>> customersFuture;
-  final VoidCallback onRefresh;
-
-  Map<String, dynamic>? _findCustomer(List<dynamic> customers, String? externalId) {
-    for (final item in customers) {
-      final customer = item as Map<String, dynamic>;
-      if (customer['external_id']?.toString() == externalId) {
-        return customer;
-      }
-    }
-    return null;
-  }
+  final String currentPath;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 64,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Row(
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      child: ListView(
+        padding: const EdgeInsets.symmetric(vertical: 20),
         children: [
-          const Icon(Icons.business_outlined),
-          const SizedBox(width: 12),
-          Expanded(
-            child: FutureBuilder<List<dynamic>>(
-              future: customersFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState != ConnectionState.done) {
-                  return const Text('Loading customers...');
-                }
-                if (snapshot.hasError) {
-                  return Text('Unable to load customers: ${snapshot.error}');
-                }
-                final customers = (snapshot.data ?? <dynamic>[]).cast<dynamic>();
-                if (customers.isEmpty) {
-                  SelectedCustomerController.select(null);
-                  return const Text('No customer selected. Upload a source folder to begin.');
-                }
-                final current = SelectedCustomerController.selected.value;
-                if (current == null || _findCustomer(customers, current['external_id']?.toString()) == null) {
-                  SelectedCustomerController.select(customers.first as Map<String, dynamic>);
-                }
-                return ValueListenableBuilder<Map<String, dynamic>?>(
-                  valueListenable: SelectedCustomerController.selected,
-                  builder: (context, selected, _) {
-                    final selectedExternalId = selected?['external_id']?.toString();
-                    final selectedValue = _findCustomer(customers, selectedExternalId)?['external_id']?.toString() ??
-                        (customers.first as Map<String, dynamic>)['external_id']?.toString();
-                    return DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        isExpanded: true,
-                        value: selectedValue,
-                        items: customers.map((item) {
-                          final customer = item as Map<String, dynamic>;
-                          final label = '${customer['display_name'] ?? customer['external_id']} (${customer['external_id']})';
-                          return DropdownMenuItem<String>(
-                            value: customer['external_id']?.toString(),
-                            child: Text(label, overflow: TextOverflow.ellipsis),
-                          );
-                        }).toList(),
-                        onChanged: (value) {
-                          SelectedCustomerController.select(_findCustomer(customers, value));
-                        },
-                      ),
-                    );
-                  },
-                );
-              },
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+            child: Row(
+              children: [
+                Icon(Icons.verified_user_outlined, size: 32, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('TrustVault', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                      Text('Evidence assurance', style: Theme.of(context).textTheme.bodySmall),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: 12),
-          IconButton(onPressed: onRefresh, icon: const Icon(Icons.refresh), tooltip: 'Refresh customers'),
+          _NavItem(path: '/', label: 'Dashboard', icon: Icons.dashboard_outlined, currentPath: currentPath),
+          _NavGroup(
+            title: 'Archive',
+            initiallyExpanded: _isInGroup(['/health', '/customers', '/search', '/api'], currentPath),
+            children: [
+              _NavItem(path: '/health', label: 'Health', icon: Icons.health_and_safety_outlined, currentPath: currentPath),
+              _NavItem(path: '/customers', label: 'Customers', icon: Icons.business_outlined, currentPath: currentPath),
+              _NavItem(path: '/search', label: 'Search', icon: Icons.manage_search_outlined, currentPath: currentPath),
+              _NavItem(path: '/api', label: 'API / Query Console', icon: Icons.api_outlined, currentPath: currentPath),
+            ],
+          ),
+          _NavGroup(
+            title: 'Customer assurance',
+            initiallyExpanded: _isInGroup(['/comparison', '/completeness', '/extraction', '/retention', '/integrity'], currentPath),
+            children: [
+              _NavItem(path: '/comparison', label: 'Comparison', icon: Icons.compare_arrows_outlined, currentPath: currentPath),
+              _NavItem(path: '/completeness', label: 'Completeness', icon: Icons.rule_folder_outlined, currentPath: currentPath),
+              _NavItem(path: '/extraction', label: 'Extraction', icon: Icons.document_scanner_outlined, currentPath: currentPath),
+              _NavItem(path: '/retention', label: 'Retention', icon: Icons.policy_outlined, currentPath: currentPath),
+              _NavItem(path: '/integrity', label: 'Integrity', icon: Icons.verified_outlined, currentPath: currentPath),
+            ],
+          ),
+          _NavGroup(
+            title: 'Operations',
+            initiallyExpanded: _isInGroup(['/ingestion', '/export', '/fits', '/jobs'], currentPath),
+            children: [
+              _NavItem(path: '/ingestion', label: 'Ingestion', icon: Icons.upload_file_outlined, currentPath: currentPath),
+              _NavItem(path: '/export', label: 'Export', icon: Icons.file_download_outlined, currentPath: currentPath),
+              _NavItem(path: '/fits', label: 'FITS', icon: Icons.data_object_outlined, currentPath: currentPath),
+              _NavItem(path: '/jobs', label: 'Jobs', icon: Icons.work_history_outlined, currentPath: currentPath),
+            ],
+          ),
+          _NavGroup(
+            title: 'Governance',
+            initiallyExpanded: _isInGroup(['/rulesets', '/audit', '/licence'], currentPath),
+            children: [
+              _NavItem(path: '/rulesets', label: 'Rulesets', icon: Icons.fact_check_outlined, currentPath: currentPath),
+              _NavItem(path: '/audit', label: 'Audit', icon: Icons.history_edu_outlined, currentPath: currentPath),
+              _NavItem(path: '/licence', label: 'Licence', icon: Icons.key_outlined, currentPath: currentPath),
+            ],
+          ),
         ],
       ),
     );
   }
+
+  bool _isInGroup(List<String> paths, String currentPath) {
+    return paths.any((path) => currentPath == path || currentPath.startsWith('$path/'));
+  }
 }
 
-class _Destination {
-  const _Destination(this.path, this.label, this.icon, this.selectedIcon);
+class _NavGroup extends StatelessWidget {
+  const _NavGroup({required this.title, required this.children, required this.initiallyExpanded});
+
+  final String title;
+  final List<Widget> children;
+  final bool initiallyExpanded;
+
+  @override
+  Widget build(BuildContext context) {
+    return ExpansionTile(
+      initiallyExpanded: initiallyExpanded,
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+      childrenPadding: const EdgeInsets.only(bottom: 8),
+      children: children,
+    );
+  }
+}
+
+class _NavItem extends StatelessWidget {
+  const _NavItem({required this.path, required this.label, required this.icon, required this.currentPath});
 
   final String path;
   final String label;
   final IconData icon;
-  final IconData selectedIcon;
+  final String currentPath;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = currentPath == path || (path != '/' && currentPath.startsWith('$path/'));
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+      child: ListTile(
+        selected: selected,
+        selectedTileColor: Theme.of(context).colorScheme.primaryContainer,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        leading: Icon(icon),
+        title: Text(label),
+        dense: true,
+        onTap: () => context.go(path),
+      ),
+    );
+  }
 }
