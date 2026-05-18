@@ -1,4 +1,5 @@
 import json
+import re
 from collections import Counter
 from typing import Any
 
@@ -15,7 +16,7 @@ from trustvault.core.app_settings import AppSettingsService
 from trustvault.core.feature_services import TrustVaultFeatureService
 from trustvault.core.fits_reader import FitsContainerReader
 from trustvault.core.query_interpreter import StructuredQuery, TrustVaultQueryInterpreter
-from trustvault.db.models import Entity, FitsIndexEntry
+from trustvault.db.models import Entity, EntityContainerVersion, FitsIndexEntry
 
 router = APIRouter(prefix="/api/v1/query", tags=["query"])
 
@@ -51,6 +52,7 @@ STOP_WORDS = {
     "evidence", "documentation", "documents", "document", "client", "clients", "customer", "customers", "who", "are", "is", "with",
 }
 ONBOARDING_CATEGORIES = {"customer_documents", "identity", "proof_of_address", "source_of_wealth", "cdd_review", "communications"}
+NON_AI_SUMMARY_SOURCES = {"entity_metadata", "archive_status", "entity_summary", "payload_metadata"}
 
 
 def _settings_values(db: Session) -> dict[str, Any]:
@@ -79,6 +81,58 @@ def _text_norm(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
+def _unique(values: list[str]) -> list[str]:
+    output: list[str] = []
+    for value in values:
+        if value and value not in output:
+            output.append(value)
+    return output
+
+
+def _expand_query_filters(categories: list[str], document_types: list[str], search_terms: list[str]) -> tuple[list[str], list[str], list[str]]:
+    cats = list(categories or [])
+    docs = list(document_types or [])
+    terms = list(search_terms or [])
+    joined = " ".join(cats + docs + terms).lower()
+
+    if "source_of_funds" in joined or "source of funds" in joined:
+        cats.extend(["source_of_funds", "source_of_wealth"])
+        docs.extend(["source_of_funds", "source_of_wealth"])
+        terms.extend(["source of funds", "source of wealth", "funds", "proceeds"])
+    if "source_of_wealth" in joined or "source of wealth" in joined:
+        cats.extend(["source_of_wealth"])
+        docs.extend(["source_of_wealth"])
+        terms.extend(["source of wealth", "wealth", "proceeds"])
+    if "screening" in joined or "pep" in joined or "sanctions" in joined:
+        cats.extend(["customer_documents", "cdd_review"])
+        docs.extend(["screening", "cdd_risk_review"])
+        terms.extend(["screening", "pep", "sanctions", "adverse media"])
+    if "correspondence" in joined or "email" in joined or "missing documents" in joined:
+        cats.extend(["communications"])
+        docs.extend(["email"])
+        if "missing documents" in joined:
+            terms.extend(["missing documents", "missing", "correspondence"])
+    return _unique(cats), _unique(docs), _unique(terms)
+
+
+def _structured_with_filters(structured: StructuredQuery, categories: list[str], document_types: list[str], search_terms: list[str], capability: str | None = None, completeness_only: bool | None = None, missing_evidence_type: str | None = None) -> StructuredQuery:
+    return StructuredQuery(
+        raw_query=structured.raw_query,
+        scope=structured.scope,
+        capability=capability or structured.capability,
+        entity_external_id=structured.entity_external_id,
+        risk_rating=structured.risk_rating,
+        jurisdiction=structured.jurisdiction,
+        snapshot_id=structured.snapshot_id,
+        document_types=document_types,
+        categories=categories,
+        search_terms=search_terms,
+        completeness_only=structured.completeness_only if completeness_only is None else completeness_only,
+        missing_evidence_type=structured.missing_evidence_type if missing_evidence_type is None else missing_evidence_type,
+        execute_with=structured.execute_with,
+    )
+
+
 def _normalise_ai_payload(ai_payload: dict[str, Any], deterministic: StructuredQuery) -> StructuredQuery:
     det = deterministic.to_dict()
     raw_query = deterministic.raw_query
@@ -92,11 +146,17 @@ def _normalise_ai_payload(ai_payload: dict[str, Any], deterministic: StructuredQ
     categories = ai_payload.get("categories") if isinstance(ai_payload.get("categories"), list) else det.get("categories")
     search_terms = ai_payload.get("search_terms") if isinstance(ai_payload.get("search_terms"), list) else det.get("search_terms")
     ai_capability = ai_payload.get("capability")
-    capability = ai_capability if ai_capability in {"evidence_search", "completeness_check", "entity_discovery", "archive_status", "payload_metadata"} else det.get("capability")
+    capability = ai_capability if ai_capability in {"evidence_search", "completeness_check", "entity_discovery", "archive_status", "entity_summary", "payload_metadata"} else det.get("capability")
 
+    # Deterministic system-level and metadata capabilities must not be weakened
+    # by an LLM returning generic evidence_search.
+    if det.get("capability") in {"archive_status", "entity_summary", "payload_metadata"}:
+        capability = det.get("capability")
     if det.get("capability") == "entity_discovery" and not snapshot_id and not document_types and not categories:
         capability = "entity_discovery"
         search_terms = []
+    if det.get("capability") == "evidence_search" and ("correspondence" in lower or "email" in lower):
+        capability = "evidence_search"
 
     if "onboarding" in lower or snapshot_id == "ONBOARDING":
         snapshot_id = "ONBOARDING"
@@ -105,8 +165,10 @@ def _normalise_ai_payload(ai_payload: dict[str, Any], deterministic: StructuredQ
         if not search_terms:
             search_terms = ["onboarding documentation"]
 
+    categories, document_types, search_terms = _expand_query_filters(categories or [], document_types or [], search_terms or [])
+
     execute_with = ai_payload.get("execute_with") if ai_payload.get("execute_with") in {"direct_fits", "fits_index"} else det.get("execute_with")
-    if capability == "entity_discovery":
+    if capability in {"entity_discovery", "archive_status", "entity_summary", "payload_metadata"}:
         execute_with = "fits_index"
     elif entity_external_id and capability != "completeness_check":
         execute_with = "direct_fits"
@@ -121,17 +183,19 @@ def _normalise_ai_payload(ai_payload: dict[str, Any], deterministic: StructuredQ
         risk_rating=risk_rating,
         jurisdiction=jurisdiction,
         snapshot_id=snapshot_id,
-        document_types=document_types or [],
-        categories=categories or [],
+        document_types=document_types,
+        categories=categories,
         search_terms=search_terms or ([] if capability == "entity_discovery" else det.get("search_terms") or [raw_query]),
-        completeness_only=bool(ai_payload.get("completeness_only", det.get("completeness_only"))),
-        missing_evidence_type=ai_payload.get("missing_evidence_type") or det.get("missing_evidence_type"),
+        completeness_only=bool(ai_payload.get("completeness_only", det.get("completeness_only"))) if capability == "completeness_check" else False,
+        missing_evidence_type=(ai_payload.get("missing_evidence_type") or det.get("missing_evidence_type")) if capability == "completeness_check" else None,
         execute_with=execute_with,
     )
 
 
 def _interpret(request: InterpretRequest | ExecuteRequest, db: Session) -> tuple[StructuredQuery, dict[str, Any]]:
     deterministic = TrustVaultQueryInterpreter().interpret(request.query, entity_external_id=request.entity_external_id)
+    categories, document_types, search_terms = _expand_query_filters(deterministic.categories or [], deterministic.document_types or [], deterministic.search_terms or [])
+    deterministic = _structured_with_filters(deterministic, categories, document_types, search_terms)
     values = _settings_values(db)
     meta: dict[str, Any] = {
         "mode": request.mode,
@@ -155,13 +219,26 @@ def _interpret(request: InterpretRequest | ExecuteRequest, db: Session) -> tuple
     return _normalise_ai_payload(ai_result.data, deterministic), meta
 
 
+def _deterministic_rows_summary(rows: list[dict[str, Any]], *, title: str = "Returned rows") -> str:
+    lines = [f"{title}: {len(rows)}.", ""]
+    for row in rows:
+        label = row.get("filename") or row.get("entity_external_id") or row.get("key") or row.get("summary") or "row"
+        details = []
+        for key in ("entity_external_id", "category", "document_type", "source_system", "sha256", "retention_until", "legal_hold_status"):
+            if row.get(key) not in (None, ""):
+                details.append(f"{key}={row.get(key)}")
+        lines.append(f"- {label}" + (f"; {'; '.join(details)}" if details else ""))
+    lines.extend(["", "The preserved FITS evidence and payload hashes remain the source of truth."])
+    return "\n".join(lines)
+
+
 def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]], db: Session, execution_source: str, audit_logger: AuditLogger) -> dict[str, Any] | None:
     if not request.include_ai_summary:
         return None
     if not rows:
         return {"available": False, "warning": "No rows were returned to summarise."}
-    if execution_source == "entity_metadata":
-        summary = _deterministic_entity_summary(rows)
+    if execution_source in NON_AI_SUMMARY_SOURCES:
+        summary = _deterministic_entity_summary(rows) if execution_source == "entity_metadata" else _deterministic_rows_summary(rows, title=execution_source)
         audit_logger.log(
             AI_SUMMARY_GENERATED,
             raw_query=request.query,
@@ -169,14 +246,14 @@ def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]],
             search_source=execution_source,
             ai_used=False,
             ai_provider="trustvault",
-            ai_model="deterministic_entity_discovery_summary",
-            metadata={"operation": "deterministic_entity_discovery_summary", "entity_count": len(rows)},
+            ai_model=f"deterministic_{execution_source}_summary",
+            metadata={"operation": f"deterministic_{execution_source}_summary", "row_count": len(rows)},
         )
         return {
             "available": True,
             "summary": summary,
             "provider": "trustvault",
-            "model": "deterministic_entity_discovery_summary",
+            "model": f"deterministic_{execution_source}_summary",
             "warnings": [],
             "evidence_row_count": len(rows),
             "source_of_truth_notice": "The preserved FITS evidence and payload hashes remain the source of truth.",
@@ -247,8 +324,8 @@ def _safe_summary_row(row: dict[str, Any]) -> dict[str, Any]:
         "entity_display_name": row.get("entity_display_name") or row.get("display_name"),
         "filename": row.get("filename"),
         "object_type": row.get("object_type") or row.get("entity_type"),
-        "category": metadata.get("category") or nested.get("category"),
-        "document_type": metadata.get("document_type") or nested.get("document_type"),
+        "category": metadata.get("category") or nested.get("category") or row.get("category"),
+        "document_type": metadata.get("document_type") or nested.get("document_type") or row.get("document_type"),
         "jurisdiction": row.get("jurisdiction") or metadata.get("jurisdiction") or nested.get("jurisdiction"),
         "risk_rating": row.get("risk_rating") or metadata.get("risk_rating") or nested.get("risk_rating"),
         "retention_class": metadata.get("retention_class") or nested.get("retention_class"),
@@ -294,8 +371,17 @@ def _customer_row(customer: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _requested_limit(raw_query: str, fallback: int) -> int:
+    lower = raw_query.lower()
+    match = re.search(r"\b(?:first|top|list)\s+(\d{1,3})\b", lower)
+    if match:
+        return max(1, min(int(match.group(1)), fallback))
+    return fallback
+
+
 def _entity_discovery_result(service: TrustVaultFeatureService, structured: StructuredQuery, limit: int) -> dict[str, Any]:
-    customers = service.customers(risk_rating=structured.risk_rating, jurisdiction=structured.jurisdiction, limit=limit)
+    effective_limit = _requested_limit(structured.raw_query, limit)
+    customers = service.customers(risk_rating=structured.risk_rating, jurisdiction=structured.jurisdiction, limit=effective_limit)
     rows = [_customer_row(customer) for customer in customers]
     return {
         "query": structured.raw_query,
@@ -309,11 +395,95 @@ def _entity_discovery_result(service: TrustVaultFeatureService, structured: Stru
             "entity_filter_applied": bool(structured.risk_rating or structured.jurisdiction),
             "requested_risk_rating": structured.risk_rating,
             "requested_jurisdiction": structured.jurisdiction,
+            "requested_limit": effective_limit,
             "matching_entity_count": len(rows),
             "matching_entity_external_ids": [row["entity_external_id"] for row in rows],
             "execution_mode": "entity_discovery",
             "evidence_text_filter_applied": False,
         },
+    }
+
+
+def _archive_status_result(service: TrustVaultFeatureService, structured: StructuredQuery) -> dict[str, Any]:
+    status = service.archive_status()
+    rows = [
+        {"key": "entity_count", "value": status.get("entity_count")},
+        {"key": "current_fits_container_count", "value": status.get("current_fits_container_count")},
+        {"key": "evidence_object_count", "value": status.get("evidence_object_count")},
+        {"key": "fits_index_entry_count", "value": status.get("fits_index_entry_count")},
+        {"key": "source_folder", "value": status.get("configuration", {}).get("source_folder")},
+        {"key": "containers_folder", "value": status.get("configuration", {}).get("containers_folder")},
+        {"key": "index_path", "value": status.get("configuration", {}).get("index_path")},
+        {"key": "exports_folder", "value": status.get("configuration", {}).get("exports_folder")},
+    ]
+    return {
+        "query": structured.raw_query,
+        "result_count": len(rows),
+        "results": rows,
+        "archive_status": status,
+        "diagnostics": {"execution_mode": "archive_status", "evidence_text_filter_applied": False},
+    }
+
+
+def _entity_summary_result(db: Session, service: TrustVaultFeatureService, structured: StructuredQuery) -> dict[str, Any]:
+    if not structured.entity_external_id:
+        return {"query": structured.raw_query, "result_count": 0, "results": [], "diagnostics": {"error": "entity_external_id_required"}}
+    lower = structured.raw_query.lower()
+    summary = service.entity_evidence_summary(structured.entity_external_id)
+    entity = summary.get("entity", {})
+    rows: list[dict[str, Any]] = []
+    if "fits container" in lower:
+        current_id = entity.get("current_container_version_id")
+        if current_id:
+            version = db.get(EntityContainerVersion, current_id)
+            rows.append({
+                "entity_external_id": structured.entity_external_id,
+                "container_version_id": current_id,
+                "version_number": entity.get("current_container_version_number"),
+                "status": version.status if version else "current",
+                "storage_uri": entity.get("current_container_storage_uri"),
+                "sha256": version.sha256 if version else None,
+                "size_bytes": version.size_bytes if version else None,
+                "hdu_count": len(version.manifest_json.get("hdu_names", [])) if version else None,
+            })
+    elif "retention" in lower or "legal hold" in lower:
+        report = service.retention_report(structured.entity_external_id)
+        rows = report.get("entities", [{}])[0].get("evidence", [])
+    elif "counts" in lower or "category" in lower or "document type" in lower:
+        for category, count in sorted(summary.get("counts_by_category", {}).items()):
+            rows.append({"entity_external_id": structured.entity_external_id, "summary_type": "category_count", "category": category, "count": count})
+        for document_type, count in sorted(summary.get("counts_by_document_type", {}).items()):
+            rows.append({"entity_external_id": structured.entity_external_id, "summary_type": "document_type_count", "document_type": document_type, "count": count})
+    else:
+        rows = [{**entity, "evidence_count": summary.get("evidence_count"), "counts_by_category": summary.get("counts_by_category"), "counts_by_document_type": summary.get("counts_by_document_type")}]
+    return {
+        "query": structured.raw_query,
+        "entity_external_id": structured.entity_external_id,
+        "result_count": len(rows),
+        "results": rows,
+        "entity_summary": summary,
+        "diagnostics": {"execution_mode": "entity_summary", "evidence_text_filter_applied": False},
+    }
+
+
+def _payload_metadata_result(db: Session, structured: StructuredQuery) -> dict[str, Any]:
+    match = re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", structured.raw_query.lower())
+    object_id = match.group(0) if match else None
+    rows: list[dict[str, Any]] = []
+    if object_id:
+        entries = db.scalars(select(FitsIndexEntry).where(FitsIndexEntry.evidence_object_id == object_id)).all()
+        for entry in entries:
+            entity = db.get(Entity, entry.entity_id)
+            if structured.entity_external_id and entity and entity.external_id != structured.entity_external_id:
+                continue
+            rows.append(_public_row(_row_from_index_entry(entry, entity)))
+    return {
+        "query": structured.raw_query,
+        "entity_external_id": structured.entity_external_id,
+        "object_id": object_id,
+        "result_count": len(rows),
+        "results": rows,
+        "diagnostics": {"execution_mode": "payload_metadata", "evidence_text_filter_applied": False},
     }
 
 
@@ -401,15 +571,15 @@ def _structured_index_search(db: Session, service: TrustVaultFeatureService, str
     }
 
 
-def _row_from_index_entry(entry: FitsIndexEntry, entity: Entity) -> dict[str, Any]:
+def _row_from_index_entry(entry: FitsIndexEntry, entity: Entity | None) -> dict[str, Any]:
     metadata = entry.metadata_json or {}
     nested = metadata.get("metadata") if isinstance(metadata.get("metadata"), dict) else {}
     search_text = nested.get("search_text") or metadata.get("search_text") or entry.text_content or ""
     searchable = "\n".join([entry.filename or "", entry.object_type or "", entry.source_system or "", search_text, json.dumps(metadata, default=str)])
     return {
         "entity_id": str(entry.entity_id),
-        "entity_external_id": entity.external_id,
-        "entity_display_name": entity.display_name,
+        "entity_external_id": entity.external_id if entity else None,
+        "entity_display_name": entity.display_name if entity else None,
         "container_version_id": str(entry.container_version_id),
         "evidence_object_id": entry.evidence_object_id,
         "hdu_name": entry.hdu_name,
@@ -424,6 +594,7 @@ def _row_from_index_entry(entry: FitsIndexEntry, entity: Entity) -> dict[str, An
         "jurisdiction": metadata.get("jurisdiction") or nested.get("jurisdiction"),
         "category": metadata.get("category") or nested.get("category"),
         "document_type": metadata.get("document_type") or nested.get("document_type"),
+        "retention_class": metadata.get("retention_class") or nested.get("retention_class"),
         "retention_until": metadata.get("retention_until") or nested.get("retention_until"),
         "legal_hold_status": metadata.get("legal_hold_status") or nested.get("legal_hold_status"),
         "_searchable": searchable,
@@ -455,16 +626,17 @@ def _structured_row_match(row: dict[str, Any], structured: StructuredQuery) -> d
             score += 45
             reasons.append("onboarding_filename")
     elif categories:
-        if category not in categories:
+        if category in categories:
+            score += 50
+            reasons.append("category")
+        elif not document_types and not terms:
             return {"matched": False, "score": 0, "reason": "category_filter_not_matched"}
-        score += 50
-        reasons.append("category")
 
     if document_types:
         if document_type in document_types or object_type in document_types:
             score += 50
             reasons.append("document_type")
-        elif not onboarding:
+        elif not categories and not terms and not onboarding:
             return {"matched": False, "score": 0, "reason": "document_type_filter_not_matched"}
 
     term_match = _term_matches(terms, searchable)
@@ -472,13 +644,14 @@ def _structured_row_match(row: dict[str, Any], structured: StructuredQuery) -> d
         score += 30
         reasons.append("text")
 
-    if not categories and not document_types and not onboarding and not term_match:
+    if categories or document_types:
+        if score <= 0:
+            return {"matched": False, "score": 0, "reason": "metadata_or_text_filter_not_matched"}
+    elif not onboarding and not term_match:
         return {"matched": False, "score": 0, "reason": "text_not_matched"}
 
-    if score <= 0:
-        return {"matched": False, "score": 0, "reason": "no_structured_match"}
     row["snippet"] = _best_snippet(row.get("text_content") or searchable, terms)
-    return {"matched": True, "score": score, "reason": ",".join(reasons)}
+    return {"matched": True, "score": score, "reason": ",".join(reasons) or "text"}
 
 
 def _term_matches(terms: list[str], searchable: str) -> bool:
@@ -542,6 +715,34 @@ def interpret_query(request: InterpretRequest, db: Session = Depends(get_databas
     return {"structured_query": structured.to_dict(), "interpretation": meta}
 
 
+def _audit_and_return(
+    *,
+    request: ExecuteRequest,
+    structured: StructuredQuery,
+    meta: dict[str, Any],
+    result: dict[str, Any],
+    execution_source: str,
+    audit_logger: AuditLogger,
+    db: Session,
+) -> dict[str, Any]:
+    rows = result.get("results", [])
+    audit_logger.log(
+        SEARCH_EXECUTED,
+        raw_query=request.query,
+        structured_query=structured.to_dict(),
+        result_count=result.get("result_count", 0),
+        search_source=execution_source,
+        entity_ids=[row.get("entity_id") for row in rows if row.get("entity_id")],
+        object_ids=[row.get("evidence_object_id") for row in rows if row.get("evidence_object_id")],
+        ai_used=meta["ai_used"],
+        ai_provider=meta.get("ai_provider"),
+        ai_model=meta.get("ai_model"),
+        metadata={"query_mode": structured.execute_with, "interpretation": meta, "diagnostics": result.get("diagnostics")},
+    )
+    summary = _summarise_if_requested(request, rows, db, execution_source, audit_logger)
+    return {"structured_query": structured.to_dict(), "interpretation": meta, "execution_source": execution_source, "result": result, "ai_summary": summary}
+
+
 @router.post("/execute")
 def execute_query(
     request: ExecuteRequest,
@@ -551,28 +752,20 @@ def execute_query(
     service = TrustVaultFeatureService(db)
     reader = FitsContainerReader(db)
     structured, meta = _interpret(request, db)
-    sq = structured.to_dict()
     terms = structured.search_terms or [request.query]
     search_query = " ".join(terms)
 
+    if structured.capability == "archive_status":
+        return _audit_and_return(request=request, structured=structured, meta=meta, result=_archive_status_result(service, structured), execution_source="archive_status", audit_logger=audit_logger, db=db)
+
+    if structured.capability == "entity_summary":
+        return _audit_and_return(request=request, structured=structured, meta=meta, result=_entity_summary_result(db, service, structured), execution_source="entity_summary", audit_logger=audit_logger, db=db)
+
+    if structured.capability == "payload_metadata":
+        return _audit_and_return(request=request, structured=structured, meta=meta, result=_payload_metadata_result(db, structured), execution_source="payload_metadata", audit_logger=audit_logger, db=db)
+
     if structured.capability == "entity_discovery":
-        result = _entity_discovery_result(service, structured, request.limit)
-        execution_source = "entity_metadata"
-        rows = result.get("results", [])
-        audit_logger.log(
-            SEARCH_EXECUTED,
-            raw_query=request.query,
-            structured_query=sq,
-            result_count=result.get("result_count", 0),
-            search_source=execution_source,
-            entity_ids=[row.get("entity_id") for row in rows],
-            ai_used=meta["ai_used"],
-            ai_provider=meta.get("ai_provider"),
-            ai_model=meta.get("ai_model"),
-            metadata={"query_mode": structured.execute_with, "interpretation": meta, "diagnostics": result.get("diagnostics")},
-        )
-        summary = _summarise_if_requested(request, rows, db, execution_source, audit_logger)
-        return {"structured_query": sq, "interpretation": meta, "execution_source": execution_source, "result": result, "ai_summary": summary}
+        return _audit_and_return(request=request, structured=structured, meta=meta, result=_entity_discovery_result(service, structured, request.limit), execution_source="entity_metadata", audit_logger=audit_logger, db=db)
 
     if structured.capability == "completeness_check":
         if structured.entity_external_id:
@@ -586,22 +779,8 @@ def execute_query(
                     if run["missing_count"] <= 0:
                         continue
                 runs.append(run)
-            result = {"result_count": len(runs), "results": runs, "diagnostics": {"matching_entity_count": len(customers)}}
-        execution_source = "completeness_rules"
-        audit_logger.log(
-            SEARCH_EXECUTED,
-            raw_query=request.query,
-            structured_query=sq,
-            result_count=result.get("result_count", 1),
-            search_source=execution_source,
-            ai_used=meta["ai_used"],
-            ai_provider=meta.get("ai_provider"),
-            ai_model=meta.get("ai_model"),
-            metadata={"query_mode": structured.execute_with, "interpretation": meta},
-        )
-        rows = result.get("results", []) if isinstance(result.get("results"), list) else [result]
-        summary = _summarise_if_requested(request, rows, db, execution_source, audit_logger)
-        return {"structured_query": sq, "interpretation": meta, "execution_source": execution_source, "result": result, "ai_summary": summary}
+            result = {"result_count": len(runs), "results": runs, "diagnostics": {"matching_entity_count": len(customers), "execution_mode": "completeness_check"}}
+        return _audit_and_return(request=request, structured=structured, meta=meta, result=result, execution_source="completeness_rules", audit_logger=audit_logger, db=db)
 
     if structured.entity_external_id:
         try:
@@ -616,19 +795,4 @@ def execute_query(
         result = _structured_index_search(db, service, structured, search_query, request.limit)
         execution_source = "fits_index"
 
-    rows = result.get("results", [])
-    audit_logger.log(
-        SEARCH_EXECUTED,
-        raw_query=request.query,
-        structured_query=sq,
-        result_count=result.get("result_count", 0),
-        search_source=execution_source,
-        entity_ids=[result["entity_id"]] if result.get("entity_id") else [],
-        object_ids=[item.get("evidence_object_id") for item in rows],
-        ai_used=meta["ai_used"],
-        ai_provider=meta.get("ai_provider"),
-        ai_model=meta.get("ai_model"),
-        metadata={"query_mode": structured.execute_with, "interpretation": meta, "diagnostics": result.get("diagnostics")},
-    )
-    summary = _summarise_if_requested(request, rows, db, execution_source, audit_logger)
-    return {"structured_query": sq, "interpretation": meta, "execution_source": execution_source, "result": result, "ai_summary": summary}
+    return _audit_and_return(request=request, structured=structured, meta=meta, result=result, execution_source=execution_source, audit_logger=audit_logger, db=db)
