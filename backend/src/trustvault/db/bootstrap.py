@@ -48,7 +48,27 @@ def initialise_database() -> None:
     """
     wait_for_database()
     Base.metadata.create_all(bind=engine)
+    _apply_local_compatibility_migrations()
 
     with engine.connect() as connection:
         connection.execute(text("SELECT 1"))
         connection.commit()
+
+
+def _apply_local_compatibility_migrations() -> None:
+    """Small additive migrations for existing local developer databases.
+
+    This prevents older docker-compose volumes from failing when the user table
+    has already been created before local-auth columns were added. Formal
+    production deployments should still use Alembic revisions.
+    """
+    statements = [
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS roles JSONB NOT NULL DEFAULT '[]'::jsonb",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP WITH TIME ZONE",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email_unique ON users (email)",
+    ]
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
