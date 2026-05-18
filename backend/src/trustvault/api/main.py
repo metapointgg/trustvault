@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from trustvault.api.routes import (
     api_status,
     audit,
+    auth,
     comparison,
     completeness,
     containers,
@@ -23,7 +24,9 @@ from trustvault.api.routes import (
     retention,
     rulesets,
 )
+from trustvault.auth.local_auth import LocalAuthService
 from trustvault.db.bootstrap import initialise_database
+from trustvault.db.session import SessionLocal
 from trustvault.settings import get_settings
 
 settings = get_settings()
@@ -46,9 +49,12 @@ app.add_middleware(
 @app.on_event("startup")
 def startup() -> None:
     initialise_database()
+    with SessionLocal() as db:
+        LocalAuthService(db).bootstrap_initial_admin()
 
 
 app.include_router(health.router)
+app.include_router(auth.router)
 app.include_router(dashboard.router)
 app.include_router(api_status.router)
 app.include_router(query.router)
