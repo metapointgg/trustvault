@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/auth/auth_controller.dart';
+
 class AppShell extends StatelessWidget {
   const AppShell({super.key, required this.child});
 
@@ -12,15 +14,106 @@ class AppShell extends StatelessWidget {
     return Scaffold(
       body: Row(
         children: [
-          SizedBox(
-            width: 280,
-            child: _SideNavigation(currentPath: location),
-          ),
+          SizedBox(width: 280, child: _SideNavigation(currentPath: location)),
           const VerticalDivider(width: 1),
-          Expanded(child: child),
+          Expanded(
+            child: Column(
+              children: [
+                const _TopBanner(),
+                const Divider(height: 1),
+                Expanded(child: child),
+              ],
+            ),
+          ),
         ],
       ),
     );
+  }
+}
+
+class _TopBanner extends StatelessWidget {
+  const _TopBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: AuthController.instance,
+      builder: (context, _) {
+        final session = AuthController.instance.session;
+        final roles = session?.roles ?? <String>[];
+        return Container(
+          height: 72,
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          color: Theme.of(context).colorScheme.surface,
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('TrustVault Control Centre', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+                    Text('FITS evidence archive, assurance controls and regulator-ready retrieval', style: Theme.of(context).textTheme.bodySmall),
+                  ],
+                ),
+              ),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: roles.take(3).map((role) => Chip(label: Text(role), visualDensity: VisualDensity.compact)).toList(),
+              ),
+              const SizedBox(width: 16),
+              PopupMenuButton<String>(
+                tooltip: 'User profile',
+                onSelected: (value) {
+                  if (value == 'sign_out') {
+                    AuthController.instance.signOut();
+                  }
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem<String>(
+                    enabled: false,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(session?.displayName ?? 'User', style: const TextStyle(fontWeight: FontWeight.w700)),
+                        Text(session?.email ?? '', style: Theme.of(context).textTheme.bodySmall),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem<String>(value: 'sign_out', child: Text('Sign out')),
+                ],
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      child: Text(_initials(session?.displayName ?? session?.email ?? 'U')),
+                    ),
+                    const SizedBox(width: 8),
+                    Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(session?.displayName ?? 'User', style: const TextStyle(fontWeight: FontWeight.w700)),
+                        Text(session?.email ?? '', style: Theme.of(context).textTheme.bodySmall),
+                      ],
+                    ),
+                    const Icon(Icons.arrow_drop_down),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  String _initials(String value) {
+    final parts = value.trim().split(RegExp(r'\s+')).where((part) => part.isNotEmpty).toList();
+    if (parts.isEmpty) return 'U';
+    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
+    return '${parts.first.substring(0, 1)}${parts.last.substring(0, 1)}'.toUpperCase();
   }
 }
 
@@ -88,9 +181,10 @@ class _SideNavigation extends StatelessWidget {
           ),
           _NavGroup(
             title: 'Governance',
-            initiallyExpanded: _isInGroup(['/rulesets', '/audit', '/licence'], currentPath),
+            initiallyExpanded: _isInGroup(['/rulesets', '/audit', '/licence', '/users'], currentPath),
             children: [
               _NavItem(path: '/rulesets', label: 'Rulesets', icon: Icons.fact_check_outlined, currentPath: currentPath),
+              _NavItem(path: '/users', label: 'User Admin', icon: Icons.manage_accounts_outlined, currentPath: currentPath),
               _NavItem(path: '/audit', label: 'Audit', icon: Icons.history_edu_outlined, currentPath: currentPath),
               _NavItem(path: '/licence', label: 'Licence', icon: Icons.key_outlined, currentPath: currentPath),
             ],
