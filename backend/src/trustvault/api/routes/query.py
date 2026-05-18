@@ -76,7 +76,6 @@ def _text_norm(value: Any) -> str:
 
 
 def _normalise_ai_payload(ai_payload: dict[str, Any], deterministic: StructuredQuery) -> StructuredQuery:
-    """Validate AI interpretation against deterministic guardrails and controlled values."""
     det = deterministic.to_dict()
     raw_query = deterministic.raw_query
     lower = raw_query.lower()
@@ -181,6 +180,13 @@ def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]],
 def _safe_summary_row(row: dict[str, Any]) -> dict[str, Any]:
     metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     nested = metadata.get("metadata") if isinstance(metadata.get("metadata"), dict) else {}
+    text_preview = (
+        nested.get("search_text")
+        or metadata.get("search_text")
+        or row.get("text_content")
+        or row.get("snippet")
+        or ""
+    )
     return {
         "entity_external_id": row.get("entity_external_id"),
         "entity_display_name": row.get("entity_display_name"),
@@ -190,9 +196,11 @@ def _safe_summary_row(row: dict[str, Any]) -> dict[str, Any]:
         "document_type": metadata.get("document_type") or nested.get("document_type"),
         "jurisdiction": metadata.get("jurisdiction") or nested.get("jurisdiction"),
         "risk_rating": metadata.get("risk_rating") or nested.get("risk_rating"),
+        "retention_class": metadata.get("retention_class") or nested.get("retention_class"),
+        "legal_hold_status": metadata.get("legal_hold_status") or nested.get("legal_hold_status"),
         "source_system": row.get("source_system"),
         "sha256": row.get("sha256"),
-        "snippet": str(row.get("snippet") or "")[:600],
+        "text_preview": str(text_preview)[:1000],
         "hdu_name": row.get("hdu_name"),
     }
 
@@ -246,7 +254,9 @@ def _structured_index_search(db: Session, service: TrustVaultFeatureService, str
 
 def _row_from_index_entry(entry: FitsIndexEntry, entity: Entity) -> dict[str, Any]:
     metadata = entry.metadata_json or {}
-    searchable = "\n".join([entry.filename or "", entry.object_type or "", entry.source_system or "", entry.text_content or "", json.dumps(metadata, default=str)])
+    nested = metadata.get("metadata") if isinstance(metadata.get("metadata"), dict) else {}
+    search_text = nested.get("search_text") or metadata.get("search_text") or entry.text_content or ""
+    searchable = "\n".join([entry.filename or "", entry.object_type or "", entry.source_system or "", search_text, json.dumps(metadata, default=str)])
     return {
         "entity_id": str(entry.entity_id),
         "entity_external_id": entity.external_id,
@@ -258,8 +268,9 @@ def _row_from_index_entry(entry: FitsIndexEntry, entity: Entity) -> dict[str, An
         "object_type": entry.object_type,
         "source_system": entry.source_system,
         "sha256": entry.sha256,
-        "snippet": _snippet(searchable, ""),
+        "snippet": _snippet(search_text or searchable, ""),
         "metadata": metadata,
+        "text_content": search_text,
         "_searchable": searchable,
     }
 
@@ -311,7 +322,7 @@ def _structured_row_match(row: dict[str, Any], structured: StructuredQuery) -> d
 
     if score <= 0:
         return {"matched": False, "score": 0, "reason": "no_structured_match"}
-    row["snippet"] = _best_snippet(searchable, terms)
+    row["snippet"] = _best_snippet(row.get("text_content") or searchable, terms)
     return {"matched": True, "score": score, "reason": ",".join(reasons)}
 
 
@@ -332,8 +343,11 @@ def _term_matches(terms: list[str], searchable: str) -> bool:
 def _best_snippet(searchable: str, terms: list[str], window: int = 180) -> str:
     for term in terms:
         term = _text_norm(term)
-        if term and term in searchable:
-            return _snippet(searchable, term, window)
+        if term and term in _text_norm(searchable):
+            index = _text_norm(searchable).find(term)
+            start = max(index - window, 0)
+            end = min(index + len(term) + window, len(searchable))
+            return f"{'...' if start > 0 else ''}{searchable[start:end]}{'...' if end < len(searchable) else ''}"
     return searchable[: window * 2]
 
 
