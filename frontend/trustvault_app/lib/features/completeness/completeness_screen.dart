@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/trustvault_api_client.dart';
+import '../../shared/customer_selector_card.dart';
 import '../../shared/selected_customer.dart';
 
 class CompletenessScreen extends StatefulWidget {
@@ -53,8 +54,14 @@ class _CompletenessScreenState extends State<CompletenessScreen> {
         children: [
           _Header(
             title: 'Completeness',
-            subtitle: 'Required-evidence rules evaluated against the selected customer FITS archive manifest.',
+            subtitle: 'Required-evidence rules evaluated against one customer FITS archive manifest.',
             onRefresh: _load,
+          ),
+          const SizedBox(height: 16),
+          CustomerSelectorCard(
+            title: 'Customer to review',
+            subtitle: 'Completeness is run against this customer current FITS archive.',
+            onChanged: (_) => _load(),
           ),
           const SizedBox(height: 24),
           Expanded(
@@ -179,8 +186,6 @@ class _Header extends StatelessWidget {
               Text(title, style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
               Text(subtitle),
-              const SizedBox(height: 8),
-              Text('Customer: ${SelectedCustomerController.displayLabel}', style: Theme.of(context).textTheme.titleSmall),
             ],
           ),
         ),
