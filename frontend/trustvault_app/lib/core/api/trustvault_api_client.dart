@@ -133,13 +133,14 @@ class TrustVaultApiClient {
     return response.data ?? <String, dynamic>{};
   }
 
-  Future<Map<String, dynamic>> executeQuery({required String query, String? entityExternalId, int limit = 50, String mode = 'auto'}) async {
+  Future<Map<String, dynamic>> executeQuery({required String query, String? entityExternalId, int limit = 50, String mode = 'auto', bool includeAiSummary = false}) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/query/execute',
       data: <String, dynamic>{
         'query': query,
         'limit': limit,
         'mode': mode,
+        'include_ai_summary': includeAiSummary,
         if (entityExternalId != null && entityExternalId.isNotEmpty) 'entity_external_id': entityExternalId,
       },
     );
