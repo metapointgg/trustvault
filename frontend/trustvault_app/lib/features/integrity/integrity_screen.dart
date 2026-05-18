@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/trustvault_api_client.dart';
+import '../../shared/customer_selector_card.dart';
 import '../../shared/selected_customer.dart';
 
 class IntegrityScreen extends StatefulWidget {
@@ -51,7 +52,13 @@ class _IntegrityScreenState extends State<IntegrityScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _Header(title: 'Integrity', subtitle: 'Fixity and structural validation for the selected customer FITS archive.', onRefresh: _load),
+          _Header(title: 'Integrity', subtitle: 'Fixity and structural validation for one customer current FITS archive.', onRefresh: _load),
+          const SizedBox(height: 16),
+          CustomerSelectorCard(
+            title: 'Customer integrity context',
+            subtitle: 'Integrity validation runs against this customer current FITS archive.',
+            onChanged: (_) => _load(),
+          ),
           const SizedBox(height: 24),
           Expanded(
             child: _future == null
@@ -150,16 +157,11 @@ class _Header extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 8),
-              Text(subtitle),
-              const SizedBox(height: 8),
-              Text('Customer: ${SelectedCustomerController.displayLabel}', style: Theme.of(context).textTheme.titleSmall),
-            ],
-          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            Text(subtitle),
+          ]),
         ),
         OutlinedButton.icon(onPressed: onRefresh, icon: const Icon(Icons.refresh), label: const Text('Refresh')),
       ],
