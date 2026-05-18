@@ -159,16 +159,19 @@ class TrustVaultApiClient {
   String evidenceDownloadUrl(String evidenceObjectId) => '$baseUrl/api/v1/evidence/$evidenceObjectId/download';
 
   Future<Uint8List> downloadFitsBytes(String containerVersionId) async {
-    final response = await _dio.get<List<int>>(
-      '/api/v1/export/containers/$containerVersionId/fits',
-      options: Options(responseType: ResponseType.bytes),
-    );
+    final response = await _dio.get<List<int>>('/api/v1/export/containers/$containerVersionId/fits', options: Options(responseType: ResponseType.bytes));
     return Uint8List.fromList(response.data ?? <int>[]);
   }
 
   Future<Map<String, dynamic>> uploadSourceFolderZip({required String filename, required Uint8List bytes}) async {
     final formData = FormData.fromMap(<String, dynamic>{'file': MultipartFile.fromBytes(bytes, filename: filename)});
     final response = await _dio.post<Map<String, dynamic>>('/api/v1/ingestion/source-folder/upload', data: formData);
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> uploadLicenceFile({required String filename, required Uint8List bytes}) async {
+    final formData = FormData.fromMap(<String, dynamic>{'file': MultipartFile.fromBytes(bytes, filename: filename)});
+    final response = await _dio.post<Map<String, dynamic>>('/api/v1/licence/upload', data: formData);
     return response.data ?? <String, dynamic>{};
   }
 
