@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 
 import '../../core/api/trustvault_api_client.dart';
@@ -62,14 +60,11 @@ class _FeatureStatusScreenState extends State<FeatureStatusScreen> {
                 if (snapshot.hasError) {
                   return Center(child: Text('Unable to load ${widget.title}: ${snapshot.error}'));
                 }
-                return Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: SingleChildScrollView(
-                      child: SelectableText(_pretty(snapshot.data ?? <String, dynamic>{})),
-                    ),
-                  ),
-                );
+                final data = snapshot.data ?? <String, dynamic>{};
+                if (data.containsKey('components')) {
+                  return _HealthStatusView(data: data);
+                }
+                return _GenericStatusView(data: data);
               },
             ),
           ),
@@ -77,9 +72,288 @@ class _FeatureStatusScreenState extends State<FeatureStatusScreen> {
       ),
     );
   }
+}
 
-  String _pretty(Object value) {
-    const encoder = JsonEncoder.withIndent('  ');
-    return encoder.convert(value);
+class _HealthStatusView extends StatelessWidget {
+  const _HealthStatusView({required this.data});
+
+  final Map<String, dynamic> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final components = (data['components'] as Map<String, dynamic>? ?? <String, dynamic>{});
+    final componentRows = components.entries.map((entry) {
+      final details = entry.value is Map<String, dynamic> ? entry.value as Map<String, dynamic> : <String, dynamic>{'status': entry.value};
+      return _ComponentStatus(
+        name: entry.key,
+        status: '${details['status'] ?? 'unknown'}',
+        details: details,
+      );
+    }).toList();
+
+    final overall = '${data['status'] ?? 'unknown'}';
+    final healthy = overall == 'ok' || overall == 'healthy' || overall == 'ready';
+    final configuration = <String, dynamic>{
+      'Application': data['app'],
+      'Environment': data['environment'],
+      'Storage provider': data['storage_provider'],
+      'Queue provider': data['queue_provider'],
+      'AI provider': data['ai_provider'],
+      'OCR provider': data['ocr_provider'],
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _OverallStatusCard(status: overall, healthy: healthy),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: _ConfigurationCard(configuration: configuration),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final crossAxisCount = constraints.maxWidth > 1200 ? 4 : constraints.maxWidth > 820 ? 3 : 2;
+              return GridView.builder(
+                itemCount: componentRows.length,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: crossAxisCount,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: 1.85,
+                ),
+                itemBuilder: (context, index) => componentRows[index],
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
+}
+
+class _OverallStatusCard extends StatelessWidget {
+  const _OverallStatusCard({required this.status, required this.healthy});
+
+  final String status;
+  final bool healthy;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      color: healthy ? scheme.primaryContainer : scheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Row(
+          children: [
+            Icon(healthy ? Icons.check_circle_outline : Icons.error_outline, size: 42, color: healthy ? scheme.onPrimaryContainer : scheme.onErrorContainer),
+            const SizedBox(width: 16),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Overall status', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 4),
+                Text(status.toUpperCase(), style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ConfigurationCard extends StatelessWidget {
+  const _ConfigurationCard({required this.configuration});
+
+  final Map<String, dynamic> configuration;
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = configuration.entries.where((entry) => entry.value != null).toList();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Runtime configuration', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: rows.map((entry) => Chip(label: Text('${entry.key}: ${entry.value}'))).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ComponentStatus extends StatelessWidget {
+  const _ComponentStatus({required this.name, required this.status, required this.details});
+
+  final String name;
+  final String status;
+  final Map<String, dynamic> details;
+
+  @override
+  Widget build(BuildContext context) {
+    final positive = _isPositive(status);
+    final neutral = _isNeutral(status);
+    final scheme = Theme.of(context).colorScheme;
+    final background = positive
+        ? scheme.primaryContainer
+        : neutral
+            ? scheme.secondaryContainer
+            : scheme.errorContainer;
+    final foreground = positive
+        ? scheme.onPrimaryContainer
+        : neutral
+            ? scheme.onSecondaryContainer
+            : scheme.onErrorContainer;
+    final extra = Map<String, dynamic>.from(details)..remove('status');
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(12)),
+                  child: Icon(_iconFor(name), color: foreground),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(_label(name), style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 4),
+                      _StatusPill(status: status, positive: positive, neutral: neutral),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: extra.isEmpty
+                  ? Text('No additional issues reported.', style: Theme.of(context).textTheme.bodySmall)
+                  : SingleChildScrollView(
+                      child: Text(
+                        extra.entries.map((entry) => '${_label(entry.key)}: ${entry.value ?? '-'}').join('\n'),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool _isPositive(String value) => ['ok', 'healthy', 'ready', 'connected', 'available', 'success'].contains(value.toLowerCase());
+  bool _isNeutral(String value) => ['database-backed', 'polled', 'disabled_by_default', 'sidecar_or_metadata_first', 'none'].contains(value.toLowerCase());
+
+  IconData _iconFor(String name) {
+    switch (name.toLowerCase()) {
+      case 'api':
+        return Icons.api_outlined;
+      case 'database':
+        return Icons.storage_outlined;
+      case 'storage':
+        return Icons.folder_outlined;
+      case 'queue':
+        return Icons.queue_outlined;
+      case 'worker':
+        return Icons.engineering_outlined;
+      case 'ai':
+        return Icons.psychology_alt_outlined;
+      case 'ocr':
+        return Icons.document_scanner_outlined;
+      case 'auth':
+        return Icons.admin_panel_settings_outlined;
+      default:
+        return Icons.health_and_safety_outlined;
+    }
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.status, required this.positive, required this.neutral});
+
+  final String status;
+  final bool positive;
+  final bool neutral;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final background = positive
+        ? scheme.primaryContainer
+        : neutral
+            ? scheme.secondaryContainer
+            : scheme.errorContainer;
+    final foreground = positive
+        ? scheme.onPrimaryContainer
+        : neutral
+            ? scheme.onSecondaryContainer
+            : scheme.onErrorContainer;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(999)),
+      child: Text(status, style: TextStyle(color: foreground, fontWeight: FontWeight.w700)),
+    );
+  }
+}
+
+class _GenericStatusView extends StatelessWidget {
+  const _GenericStatusView({required this.data});
+
+  final Map<String, dynamic> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = data.entries.toList();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: ListView.separated(
+          itemCount: entries.length,
+          separatorBuilder: (_, __) => const Divider(),
+          itemBuilder: (context, index) {
+            final entry = entries[index];
+            return ListTile(
+              title: Text(_label(entry.key), style: const TextStyle(fontWeight: FontWeight.w700)),
+              subtitle: SelectableText('${entry.value}'),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+String _label(String value) {
+  if (value.isEmpty) return value;
+  return value
+      .replaceAll('_', ' ')
+      .split(' ')
+      .where((part) => part.isNotEmpty)
+      .map((part) => part.substring(0, 1).toUpperCase() + part.substring(1))
+      .join(' ');
 }
