@@ -105,11 +105,25 @@ class LmStudioAiProvider(AiProvider):
                 {
                     "role": "system",
                     "content": (
-                        "Summarise only the provided TrustVault evidence in concise English. "
-                        "Do not invent facts. State that preserved FITS evidence and hashes are the source of truth."
+                        "You are TrustVault's evidence assistant. Summarise only the provided evidence rows. "
+                        "Use concise English and do not invent facts. If rows are provided, produce a useful summary. "
+                        "Mention the matching entities, document categories, document types, jurisdictions, risk ratings and notable facts from text_preview where available. "
+                        "End with this exact sentence: Preserved FITS evidence and payload hashes remain the source of truth."
                     ),
                 },
-                {"role": "user", "content": json.dumps({"question": question, "evidence": compact_evidence}, default=str)},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "task": "Summarise the TrustVault evidence rows returned for this search.",
+                            "question": question,
+                            "evidence_row_count": len(compact_evidence),
+                            "evidence": compact_evidence,
+                            "required_output": "One short paragraph followed by 3 to 6 concise bullets where useful.",
+                        },
+                        default=str,
+                    ),
+                },
             ],
             "temperature": 0.1,
         }
