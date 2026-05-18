@@ -11,12 +11,12 @@ from sqlalchemy.orm import Session
 from trustvault.ai.lm_studio import LmStudioAiProvider
 from trustvault.audit.events import AI_SUMMARY_GENERATED, SEARCH_EXECUTED
 from trustvault.audit.logger import AuditLogger
-from trustvault.api.dependencies import get_audit_logger, get_database
+from trustvault.api.dependencies import get_audit_logger, get_current_user, get_database
 from trustvault.core.app_settings import AppSettingsService
 from trustvault.core.feature_services import TrustVaultFeatureService
 from trustvault.core.fits_reader import FitsContainerReader
 from trustvault.core.query_interpreter import StructuredQuery, TrustVaultQueryInterpreter
-from trustvault.db.models import Entity, EntityContainerVersion, FitsIndexEntry
+from trustvault.db.models import Entity, EntityContainerVersion, FitsIndexEntry, User
 
 router = APIRouter(prefix="/api/v1/query", tags=["query"])
 
@@ -257,22 +257,31 @@ def _interpret(request: InterpretRequest | ExecuteRequest, db: Session) -> tuple
 
 
 def _deterministic_rows_summary(rows: list[dict[str, Any]], *, title: str = "Returned rows") -> str:
-    lines = [f"{title}: {len(rows)}.", ""]
-    for row in rows:
-        label = row.get("filename") or row.get("entity_external_id") or row.get("key") or row.get("summary") or "row"
-        details = []
-        for key in ("entity_external_id", "category", "document_type", "source_system", "sha256", "retention_until", "legal_hold_status"):
-            if row.get(key) not in (None, ""):
-                details.append(f"{key}={row.get(key)}")
-        lines.append(f"- {label}" + (f"; {'; '.join(details)}" if details else ""))
-    lines.extend(["", "The preserved FITS evidence and payload hashes remain the source of truth."])
+    counts_by_entity = Counter(str(row.get("entity_external_id") or row.get("external_id") or "Unknown") for row in rows)
+    counts_by_category = Counter(str(row.get("category") or "Unknown") for row in rows if row.get("category"))
+    counts_by_document_type = Counter(str(row.get("document_type") or row.get("object_type") or "Unknown") for row in rows if row.get("document_type") or row.get("object_type"))
+    examples = [str(row.get("filename")) for row in rows if row.get("filename")][:5]
+    lines = [f"{title}: {len(rows)} row{'s' if len(rows) != 1 else ''} returned across {len(counts_by_entity)} customer{'s' if len(counts_by_entity) != 1 else ''}."]
+    if counts_by_entity:
+        lines.append("Customers: " + ", ".join(f"{key} ({value})" for key, value in counts_by_entity.most_common(8)))
+    if counts_by_category:
+        lines.append("Categories: " + ", ".join(f"{key} ({value})" for key, value in counts_by_category.most_common(8)))
+    if counts_by_document_type:
+        lines.append("Document types: " + ", ".join(f"{key} ({value})" for key, value in counts_by_document_type.most_common(8)))
+    if examples:
+        lines.append("Example files: " + ", ".join(examples))
+    lines.append("Use the results grid for row-level evidence, previews, retention metadata and SHA-256 verification. The preserved FITS evidence and payload hashes remain the source of truth.")
     return "\n".join(lines)
 
 
 def _summary_should_use_ai(request: ExecuteRequest, execution_source: str) -> bool:
-    if request.mode != "ai":
+    if not request.include_ai_summary:
         return False
-    return execution_source not in NON_AI_SUMMARY_SOURCES
+    if request.mode == "ai" and execution_source not in NON_AI_SUMMARY_SOURCES:
+        return True
+    if request.mode == "auto" and execution_source in {"fits_index", "direct_fits_container"}:
+        return True
+    return False
 
 
 def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]], db: Session, execution_source: str, audit_logger: AuditLogger) -> dict[str, Any] | None:
@@ -280,55 +289,54 @@ def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]],
         return None
     if not rows:
         return {"available": False, "warning": "No rows were returned to summarise."}
-    if not _summary_should_use_ai(request, execution_source):
-        summary = _deterministic_entity_summary(rows) if execution_source == "entity_metadata" else _deterministic_rows_summary(rows, title=execution_source)
+    values = _settings_values(db)
+    if _summary_should_use_ai(request, execution_source) and str(values.get("ai_provider", "none")).lower() in {"lm_studio", "lmstudio"}:
+        summary_model = _lm_studio_model(values, purpose="summary")
+        ai = LmStudioAiProvider(str(values.get("lm_studio_base_url") or "http://localhost:1234"), model=summary_model)
+        evidence_payload = [_safe_summary_row(row) for row in rows[:12]]
+        ai_result = ai.summarise_evidence(evidence_payload, question=request.query)
         audit_logger.log(
             AI_SUMMARY_GENERATED,
             raw_query=request.query,
             result_count=len(rows),
             search_source=execution_source,
-            ai_used=False,
-            ai_provider="trustvault",
-            ai_model=f"deterministic_{execution_source}_summary",
-            metadata={"operation": f"deterministic_{execution_source}_summary", "row_count": len(rows), "request_mode": request.mode},
+            ai_used=not ai_result.warnings,
+            ai_provider=ai_result.provider,
+            ai_model=ai_result.model,
+            metadata={"operation": "search_result_summary", "warnings": ai_result.warnings},
         )
-        return {
-            "available": True,
-            "summary": summary,
-            "provider": "trustvault",
-            "model": f"deterministic_{execution_source}_summary",
-            "warnings": [],
-            "evidence_row_count": len(rows),
-            "source_of_truth_notice": "The preserved FITS evidence and payload hashes remain the source of truth.",
-            "ai_used_for_summary": False,
-        }
+        if not ai_result.warnings and ai_result.text:
+            return {
+                "available": True,
+                "summary": ai_result.text,
+                "provider": ai_result.provider,
+                "model": ai_result.model,
+                "warnings": [],
+                "evidence_row_count": min(len(rows), 12),
+                "source_of_truth_notice": "The preserved FITS evidence and payload hashes remain the source of truth.",
+                "ai_used_for_summary": True,
+            }
 
-    values = _settings_values(db)
-    if str(values.get("ai_provider", "none")).lower() not in {"lm_studio", "lmstudio"}:
-        return {"available": False, "warning": "AI summary requested but effective ai_provider is not lm_studio.", "effective_ai_provider": values.get("ai_provider")}
-    summary_model = _lm_studio_model(values, purpose="summary")
-    ai = LmStudioAiProvider(str(values.get("lm_studio_base_url") or "http://localhost:1234"), model=summary_model)
-    evidence_payload = [_safe_summary_row(row) for row in rows[:12]]
-    ai_result = ai.summarise_evidence(evidence_payload, question=request.query)
+    summary = _deterministic_entity_summary(rows) if execution_source == "entity_metadata" else _deterministic_rows_summary(rows, title=execution_source)
     audit_logger.log(
         AI_SUMMARY_GENERATED,
         raw_query=request.query,
         result_count=len(rows),
         search_source=execution_source,
-        ai_used=not ai_result.warnings,
-        ai_provider=ai_result.provider,
-        ai_model=ai_result.model,
-        metadata={"operation": "search_result_summary", "warnings": ai_result.warnings},
+        ai_used=False,
+        ai_provider="trustvault",
+        ai_model=f"deterministic_{execution_source}_summary",
+        metadata={"operation": f"deterministic_{execution_source}_summary", "row_count": len(rows), "request_mode": request.mode},
     )
     return {
-        "available": not ai_result.warnings,
-        "summary": ai_result.text,
-        "provider": ai_result.provider,
-        "model": ai_result.model,
-        "warnings": ai_result.warnings,
-        "evidence_row_count": min(len(rows), 12),
+        "available": True,
+        "summary": summary,
+        "provider": "trustvault",
+        "model": f"deterministic_{execution_source}_summary",
+        "warnings": [] if str(values.get("ai_provider", "none")).lower() in {"lm_studio", "lmstudio"} else ["AI summary requested but effective ai_provider is not lm_studio; deterministic summary used."],
+        "evidence_row_count": len(rows),
         "source_of_truth_notice": "The preserved FITS evidence and payload hashes remain the source of truth.",
-        "ai_used_for_summary": not ai_result.warnings,
+        "ai_used_for_summary": False,
     }
 
 
@@ -743,7 +751,7 @@ def query_scenarios() -> dict[str, Any]:
 
 
 @router.post("/interpret")
-def interpret_query(request: InterpretRequest, db: Session = Depends(get_database), audit_logger: AuditLogger = Depends(get_audit_logger)) -> dict[str, Any]:
+def interpret_query(request: InterpretRequest, db: Session = Depends(get_database), audit_logger: AuditLogger = Depends(get_audit_logger), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     structured, meta = _interpret(request, db)
     audit_logger.log(
         AI_SUMMARY_GENERATED if meta["ai_used"] else SEARCH_EXECUTED,
@@ -752,7 +760,8 @@ def interpret_query(request: InterpretRequest, db: Session = Depends(get_databas
         ai_used=meta["ai_used"],
         ai_provider=meta.get("ai_provider"),
         ai_model=meta.get("ai_model"),
-        metadata={"operation": "query_interpret", **meta},
+        user_id=str(current_user.id),
+        metadata={"operation": "query_interpret", "user_email": current_user.email, "user_display_name": current_user.display_name, **meta},
     )
     return {"structured_query": structured.to_dict(), "interpretation": meta}
 
@@ -766,20 +775,33 @@ def _audit_and_return(
     execution_source: str,
     audit_logger: AuditLogger,
     db: Session,
+    current_user: User,
 ) -> dict[str, Any]:
     rows = result.get("results", [])
+    object_ids = [row.get("evidence_object_id") for row in rows if row.get("evidence_object_id")]
+    entity_ids = [row.get("entity_id") for row in rows if row.get("entity_id")]
+    entity_external_ids = sorted({str(row.get("entity_external_id") or row.get("external_id")) for row in rows if row.get("entity_external_id") or row.get("external_id")})
     audit_logger.log(
         SEARCH_EXECUTED,
         raw_query=request.query,
         structured_query=structured.to_dict(),
         result_count=result.get("result_count", 0),
         search_source=execution_source,
-        entity_ids=[row.get("entity_id") for row in rows if row.get("entity_id")],
-        object_ids=[row.get("evidence_object_id") for row in rows if row.get("evidence_object_id")],
+        entity_ids=entity_ids,
+        object_ids=object_ids,
         ai_used=meta["ai_used"],
         ai_provider=meta.get("ai_provider"),
         ai_model=meta.get("ai_model"),
-        metadata={"query_mode": structured.execute_with, "interpretation": meta, "diagnostics": result.get("diagnostics")},
+        user_id=str(current_user.id),
+        metadata={
+            "query_mode": structured.execute_with,
+            "interpretation": meta,
+            "diagnostics": result.get("diagnostics"),
+            "user_email": current_user.email,
+            "user_display_name": current_user.display_name,
+            "entity_external_ids": entity_external_ids,
+            "object_count": len(object_ids),
+        },
     )
     summary = _summarise_if_requested(request, rows, db, execution_source, audit_logger)
     return {"structured_query": structured.to_dict(), "interpretation": meta, "execution_source": execution_source, "result": result, "ai_summary": summary}
@@ -790,6 +812,7 @@ def execute_query(
     request: ExecuteRequest,
     db: Session = Depends(get_database),
     audit_logger: AuditLogger = Depends(get_audit_logger),
+    current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     service = TrustVaultFeatureService(db)
     reader = FitsContainerReader(db)
@@ -798,16 +821,16 @@ def execute_query(
     search_query = " ".join(terms)
 
     if structured.capability == "archive_status":
-        return _audit_and_return(request=request, structured=structured, meta=meta, result=_archive_status_result(service, structured), execution_source="archive_status", audit_logger=audit_logger, db=db)
+        return _audit_and_return(request=request, structured=structured, meta=meta, result=_archive_status_result(service, structured), execution_source="archive_status", audit_logger=audit_logger, db=db, current_user=current_user)
 
     if structured.capability == "entity_summary":
-        return _audit_and_return(request=request, structured=structured, meta=meta, result=_entity_summary_result(db, service, structured), execution_source="entity_summary", audit_logger=audit_logger, db=db)
+        return _audit_and_return(request=request, structured=structured, meta=meta, result=_entity_summary_result(db, service, structured), execution_source="entity_summary", audit_logger=audit_logger, db=db, current_user=current_user)
 
     if structured.capability == "payload_metadata":
-        return _audit_and_return(request=request, structured=structured, meta=meta, result=_payload_metadata_result(db, structured), execution_source="payload_metadata", audit_logger=audit_logger, db=db)
+        return _audit_and_return(request=request, structured=structured, meta=meta, result=_payload_metadata_result(db, structured), execution_source="payload_metadata", audit_logger=audit_logger, db=db, current_user=current_user)
 
     if structured.capability == "entity_discovery":
-        return _audit_and_return(request=request, structured=structured, meta=meta, result=_entity_discovery_result(service, structured, request.limit), execution_source="entity_metadata", audit_logger=audit_logger, db=db)
+        return _audit_and_return(request=request, structured=structured, meta=meta, result=_entity_discovery_result(service, structured, request.limit), execution_source="entity_metadata", audit_logger=audit_logger, db=db, current_user=current_user)
 
     if structured.capability == "completeness_check":
         if structured.entity_external_id:
@@ -822,7 +845,7 @@ def execute_query(
                         continue
                 runs.append(run)
             result = {"result_count": len(runs), "results": runs, "diagnostics": {"matching_entity_count": len(customers), "execution_mode": "completeness_check"}}
-        return _audit_and_return(request=request, structured=structured, meta=meta, result=result, execution_source="completeness_rules", audit_logger=audit_logger, db=db)
+        return _audit_and_return(request=request, structured=structured, meta=meta, result=result, execution_source="completeness_rules", audit_logger=audit_logger, db=db, current_user=current_user)
 
     if structured.entity_external_id:
         try:
@@ -837,4 +860,4 @@ def execute_query(
         result = _structured_index_search(db, service, structured, search_query, request.limit)
         execution_source = "fits_index"
 
-    return _audit_and_return(request=request, structured=structured, meta=meta, result=result, execution_source=execution_source, audit_logger=audit_logger, db=db)
+    return _audit_and_return(request=request, structured=structured, meta=meta, result=result, execution_source=execution_source, audit_logger=audit_logger, db=db, current_user=current_user)
