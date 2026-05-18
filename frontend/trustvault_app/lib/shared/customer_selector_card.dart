@@ -6,8 +6,8 @@ import 'selected_customer.dart';
 class CustomerSelectorCard extends StatefulWidget {
   const CustomerSelectorCard({
     super.key,
-    this.title = 'Customer context',
-    this.subtitle = 'Select a customer for this operation.',
+    this.title = 'Entity context',
+    this.subtitle = 'Select an entity for this operation.',
     this.onChanged,
   });
 
@@ -42,10 +42,10 @@ class _CustomerSelectorCardState extends State<CustomerSelectorCard> {
     });
   }
 
-  Map<String, dynamic>? _findCustomer(List<dynamic> customers, String? externalId) {
-    for (final item in customers) {
-      final customer = item as Map<String, dynamic>;
-      if (customer['external_id']?.toString() == externalId) return customer;
+  Map<String, dynamic>? _findEntity(List<dynamic> entities, String? externalId) {
+    for (final item in entities) {
+      final entity = item as Map<String, dynamic>;
+      if (entity['external_id']?.toString() == externalId) return entity;
     }
     return null;
   }
@@ -66,32 +66,32 @@ class _CustomerSelectorCardState extends State<CustomerSelectorCard> {
                 children: [
                   Icon(Icons.error_outline, color: Theme.of(context).colorScheme.error),
                   const SizedBox(width: 12),
-                  Expanded(child: Text('Unable to load customers: ${snapshot.error}')),
+                  Expanded(child: Text('Unable to load entities: ${snapshot.error}')),
                   IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
                 ],
               );
             }
-            final customers = (snapshot.data ?? <dynamic>[]).cast<dynamic>();
-            if (customers.isEmpty) {
+            final entities = (snapshot.data ?? <dynamic>[]).cast<dynamic>();
+            if (entities.isEmpty) {
               return Row(
                 children: [
                   const Icon(Icons.business_outlined),
                   const SizedBox(width: 12),
-                  const Expanded(child: Text('No customers available. Upload a source folder to begin.')),
+                  const Expanded(child: Text('No entities available. Upload a source folder to begin.')),
                   IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
                 ],
               );
             }
             final current = SelectedCustomerController.selected.value;
-            if (current == null || _findCustomer(customers, current['external_id']?.toString()) == null) {
-              SelectedCustomerController.select(customers.first as Map<String, dynamic>);
+            if (current == null || _findEntity(entities, current['external_id']?.toString()) == null) {
+              SelectedCustomerController.select(entities.first as Map<String, dynamic>);
             }
             return ValueListenableBuilder<Map<String, dynamic>?>(
               valueListenable: SelectedCustomerController.selected,
               builder: (context, selected, _) {
                 final selectedExternalId = selected?['external_id']?.toString();
-                final selectedValue = _findCustomer(customers, selectedExternalId)?['external_id']?.toString() ??
-                    (customers.first as Map<String, dynamic>)['external_id']?.toString();
+                final selectedValue = _findEntity(entities, selectedExternalId)?['external_id']?.toString() ??
+                    (entities.first as Map<String, dynamic>)['external_id']?.toString();
                 return Row(
                   children: [
                     const Icon(Icons.business_outlined),
@@ -111,23 +111,23 @@ class _CustomerSelectorCardState extends State<CustomerSelectorCard> {
                       width: 360,
                       child: DropdownButtonFormField<String>(
                         value: selectedValue,
-                        decoration: const InputDecoration(labelText: 'Customer', border: OutlineInputBorder()),
-                        items: customers.map((item) {
-                          final customer = item as Map<String, dynamic>;
-                          final label = '${customer['display_name'] ?? customer['external_id']} (${customer['external_id']})';
+                        decoration: const InputDecoration(labelText: 'Entity', border: OutlineInputBorder()),
+                        items: entities.map((item) {
+                          final entity = item as Map<String, dynamic>;
+                          final label = '${entity['display_name'] ?? entity['external_id']} (${entity['external_id']})';
                           return DropdownMenuItem<String>(
-                            value: customer['external_id']?.toString(),
+                            value: entity['external_id']?.toString(),
                             child: Text(label, overflow: TextOverflow.ellipsis),
                           );
                         }).toList(),
                         onChanged: (value) {
-                          final customer = _findCustomer(customers, value);
-                          SelectedCustomerController.select(customer);
-                          widget.onChanged?.call(customer);
+                          final entity = _findEntity(entities, value);
+                          SelectedCustomerController.select(entity);
+                          widget.onChanged?.call(entity);
                         },
                       ),
                     ),
-                    IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh), tooltip: 'Refresh customers'),
+                    IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh), tooltip: 'Refresh entities'),
                   ],
                 );
               },
