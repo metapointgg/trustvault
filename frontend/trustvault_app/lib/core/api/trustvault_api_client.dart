@@ -53,23 +53,25 @@ class TrustVaultApiClient {
   Future<Map<String, dynamic>> getEntityRetention(String entityId) async => _getMap('/api/v1/retention/entities/$entityId');
   Future<Map<String, dynamic>> getEntityIntegrity(String entityId) async => _getMap('/api/v1/integrity/entities/$entityId');
 
-  Future<Map<String, dynamic>> interpretQuery({required String query, String? entityExternalId}) async {
+  Future<Map<String, dynamic>> interpretQuery({required String query, String? entityExternalId, String mode = 'auto'}) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/query/interpret',
       data: <String, dynamic>{
         'query': query,
+        'mode': mode,
         if (entityExternalId != null && entityExternalId.isNotEmpty) 'entity_external_id': entityExternalId,
       },
     );
     return response.data ?? <String, dynamic>{};
   }
 
-  Future<Map<String, dynamic>> executeQuery({required String query, String? entityExternalId, int limit = 50}) async {
+  Future<Map<String, dynamic>> executeQuery({required String query, String? entityExternalId, int limit = 50, String mode = 'auto'}) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/query/execute',
       data: <String, dynamic>{
         'query': query,
         'limit': limit,
+        'mode': mode,
         if (entityExternalId != null && entityExternalId.isNotEmpty) 'entity_external_id': entityExternalId,
       },
     );
@@ -138,9 +140,9 @@ class TrustVaultApiClient {
     return response.data ?? <String, dynamic>{};
   }
 
-  String fitsDownloadUrl(String containerVersionId) {
-    return '${_dio.options.baseUrl}/api/v1/export/containers/$containerVersionId/fits';
-  }
+  String fitsDownloadUrl(String containerVersionId) => '$baseUrl/api/v1/export/containers/$containerVersionId/fits';
+  String evidenceFileUrl(String evidenceObjectId) => '$baseUrl/api/v1/evidence/$evidenceObjectId/file';
+  String evidenceDownloadUrl(String evidenceObjectId) => '$baseUrl/api/v1/evidence/$evidenceObjectId/download';
 
   Future<Map<String, dynamic>> uploadSourceFolderZip({required String filename, required Uint8List bytes}) async {
     final formData = FormData.fromMap(<String, dynamic>{
