@@ -27,6 +27,7 @@ class ExecuteRequest(BaseModel):
     entity_external_id: str | None = None
     limit: int = Field(default=50, ge=1, le=500)
     mode: str = Field(default="auto", pattern="^(deterministic|ai|auto)$")
+    include_ai_summary: bool = False
 
 
 SCENARIOS: list[dict[str, Any]] = [
@@ -46,8 +47,6 @@ def _ai_enabled_for_mode(mode: str) -> bool:
     settings = get_settings()
     if mode == "deterministic":
         return False
-    if mode == "ai":
-        return settings.ai_provider.lower() in {"lm_studio", "lmstudio"}
     return settings.ai_provider.lower() in {"lm_studio", "lmstudio"}
 
 
@@ -66,7 +65,6 @@ def _normalise_ai_payload(ai_payload: dict[str, Any], deterministic: StructuredQ
     search_terms = ai_payload.get("search_terms") if isinstance(ai_payload.get("search_terms"), list) else det.get("search_terms")
     capability = ai_payload.get("capability") if ai_payload.get("capability") in {"evidence_search", "completeness_check", "entity_discovery", "archive_status", "payload_metadata"} else det.get("capability")
 
-    # Hard guardrail inherited from the POC: onboarding is a lifecycle snapshot, not a document type.
     if "onboarding" in lower or snapshot_id == "ONBOARDING":
         snapshot_id = "ONBOARDING"
         document_types = [item for item in (document_types or []) if str(item).upper() != "ONBOARDING"]
@@ -125,6 +123,53 @@ def _interpret(request: InterpretRequest | ExecuteRequest) -> tuple[StructuredQu
     if ai_result.warnings or not ai_result.data:
         return deterministic, meta
     return _normalise_ai_payload(ai_result.data, deterministic), meta
+
+
+def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]], meta: dict[str, Any], execution_source: str, audit_logger: AuditLogger) -> dict[str, Any] | None:
+    if not request.include_ai_summary:
+        return None
+    settings = get_settings()
+    if settings.ai_provider.lower() not in {"lm_studio", "lmstudio"}:
+        return {
+            "available": False,
+            "warning": "AI summary requested but TRUSTVAULT_AI_PROVIDER is not lm_studio.",
+        }
+    if not rows:
+        return {"available": False, "warning": "No evidence rows were returned to summarise."}
+    ai = LmStudioAiProvider(settings.lm_studio_base_url, model=settings.lm_studio_model)
+    evidence_payload = [
+        {
+            "entity_external_id": row.get("entity_external_id"),
+            "entity_display_name": row.get("entity_display_name"),
+            "filename": row.get("filename"),
+            "object_type": row.get("object_type"),
+            "source_system": row.get("source_system"),
+            "sha256": row.get("sha256"),
+            "snippet": row.get("snippet"),
+            "hdu_name": row.get("hdu_name"),
+        }
+        for row in rows[:25]
+    ]
+    ai_result = ai.summarise_evidence(evidence_payload, question=request.query)
+    audit_logger.log(
+        AI_SUMMARY_GENERATED,
+        raw_query=request.query,
+        result_count=len(rows),
+        search_source=execution_source,
+        ai_used=not ai_result.warnings,
+        ai_provider=ai_result.provider,
+        ai_model=ai_result.model,
+        metadata={"operation": "search_result_summary", "warnings": ai_result.warnings},
+    )
+    return {
+        "available": not ai_result.warnings,
+        "summary": ai_result.text,
+        "provider": ai_result.provider,
+        "model": ai_result.model,
+        "warnings": ai_result.warnings,
+        "evidence_row_count": min(len(rows), 25),
+        "source_of_truth_notice": "The preserved FITS evidence and payload hashes remain the source of truth.",
+    }
 
 
 @router.get("/archive/status")
@@ -190,7 +235,8 @@ def execute_query(
             ai_model=meta.get("ai_model"),
             metadata={"query_mode": structured.execute_with, "interpretation": meta},
         )
-        return {"structured_query": sq, "interpretation": meta, "execution_source": execution_source, "result": result}
+        summary = _summarise_if_requested(request, result.get("results", []) if isinstance(result.get("results"), list) else [result], meta, execution_source, audit_logger)
+        return {"structured_query": sq, "interpretation": meta, "execution_source": execution_source, "result": result, "ai_summary": summary}
 
     if structured.entity_external_id:
         try:
@@ -209,6 +255,7 @@ def execute_query(
             result = reader.index_search(search_query, None, request.limit)
         execution_source = "fits_index"
 
+    rows = result.get("results", [])
     audit_logger.log(
         SEARCH_EXECUTED,
         raw_query=request.query,
@@ -216,10 +263,11 @@ def execute_query(
         result_count=result.get("result_count", 0),
         search_source=execution_source,
         entity_ids=[result["entity_id"]] if result.get("entity_id") else [],
-        object_ids=[item.get("evidence_object_id") for item in result.get("results", [])],
+        object_ids=[item.get("evidence_object_id") for item in rows],
         ai_used=meta["ai_used"],
         ai_provider=meta.get("ai_provider"),
         ai_model=meta.get("ai_model"),
         metadata={"query_mode": structured.execute_with, "interpretation": meta},
     )
-    return {"structured_query": sq, "interpretation": meta, "execution_source": execution_source, "result": result}
+    summary = _summarise_if_requested(request, rows, meta, execution_source, audit_logger)
+    return {"structured_query": sq, "interpretation": meta, "execution_source": execution_source, "result": result, "ai_summary": summary}
