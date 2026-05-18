@@ -27,6 +27,7 @@ SETTING_DEFINITIONS: list[SettingDefinition] = [
     SettingDefinition("queue_provider", "Queue", "string", "Queue provider: database, sqs or azure."),
     SettingDefinition("ai_provider", "AI", "string", "AI provider: none, lm_studio, azure_openai or bedrock."),
     SettingDefinition("lm_studio_base_url", "AI", "string", "LM Studio/OpenAI-compatible local endpoint."),
+    SettingDefinition("lm_studio_model", "AI", "string", "Model used for evidence summaries and Q&A."),
     SettingDefinition("lm_studio_query_model", "AI", "string", "Model used for query interpretation."),
     SettingDefinition("ocr_provider", "OCR", "string", "OCR provider: none, tesseract, sidecar or cloud provider."),
     SettingDefinition("tesseract_command", "OCR", "string", "Tesseract command path when local OCR is enabled."),
