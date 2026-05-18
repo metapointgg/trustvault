@@ -53,6 +53,14 @@ def _settings_values(db: Session) -> dict[str, Any]:
     return AppSettingsService(db).effective_values()
 
 
+def _lm_studio_model(values: dict[str, Any], *, purpose: str) -> str:
+    query_model = str(values.get("lm_studio_query_model") or "").strip()
+    summary_model = str(values.get("lm_studio_model") or "").strip()
+    if purpose == "summary":
+        return summary_model if ":" in summary_model else query_model or summary_model
+    return query_model or summary_model
+
+
 def _ai_enabled_for_mode(mode: str, values: dict[str, Any]) -> bool:
     if mode == "deterministic":
         return False
@@ -129,15 +137,9 @@ def _interpret(request: InterpretRequest | ExecuteRequest, db: Session) -> tuple
             meta["ai_warnings"].append("AI mode requested but effective ai_provider is not lm_studio; deterministic interpretation used")
         return deterministic, meta
 
-    ai = LmStudioAiProvider(str(values.get("lm_studio_base_url") or "http://localhost:1234"), model=str(values.get("lm_studio_query_model") or values.get("lm_studio_model") or ""))
+    ai = LmStudioAiProvider(str(values.get("lm_studio_base_url") or "http://localhost:1234"), model=_lm_studio_model(values, purpose="query"))
     ai_result = ai.interpret_query(request.query, deterministic.to_dict(), context={"entity_external_id": request.entity_external_id})
-    meta.update({
-        "ai_used": not ai_result.warnings,
-        "ai_provider": ai_result.provider,
-        "ai_model": ai_result.model,
-        "ai_warnings": ai_result.warnings,
-        "ai_raw": ai_result.data,
-    })
+    meta.update({"ai_used": not ai_result.warnings, "ai_provider": ai_result.provider, "ai_model": ai_result.model, "ai_warnings": ai_result.warnings, "ai_raw": ai_result.data})
     if ai_result.warnings or not ai_result.data:
         return deterministic, meta
     return _normalise_ai_payload(ai_result.data, deterministic), meta
@@ -151,20 +153,9 @@ def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]],
         return {"available": False, "warning": "AI summary requested but effective ai_provider is not lm_studio.", "effective_ai_provider": values.get("ai_provider")}
     if not rows:
         return {"available": False, "warning": "No evidence rows were returned to summarise."}
-    ai = LmStudioAiProvider(str(values.get("lm_studio_base_url") or "http://localhost:1234"), model=str(values.get("lm_studio_model") or values.get("lm_studio_query_model") or ""))
-    evidence_payload = [
-        {
-            "entity_external_id": row.get("entity_external_id"),
-            "entity_display_name": row.get("entity_display_name"),
-            "filename": row.get("filename"),
-            "object_type": row.get("object_type"),
-            "source_system": row.get("source_system"),
-            "sha256": row.get("sha256"),
-            "snippet": row.get("snippet"),
-            "hdu_name": row.get("hdu_name"),
-        }
-        for row in rows[:25]
-    ]
+    summary_model = _lm_studio_model(values, purpose="summary")
+    ai = LmStudioAiProvider(str(values.get("lm_studio_base_url") or "http://localhost:1234"), model=summary_model)
+    evidence_payload = [_safe_summary_row(row) for row in rows[:12]]
     ai_result = ai.summarise_evidence(evidence_payload, question=request.query)
     audit_logger.log(
         AI_SUMMARY_GENERATED,
@@ -182,16 +173,38 @@ def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]],
         "provider": ai_result.provider,
         "model": ai_result.model,
         "warnings": ai_result.warnings,
-        "evidence_row_count": min(len(rows), 25),
+        "evidence_row_count": min(len(rows), 12),
         "source_of_truth_notice": "The preserved FITS evidence and payload hashes remain the source of truth.",
     }
+
+
+def _safe_summary_row(row: dict[str, Any]) -> dict[str, Any]:
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    nested = metadata.get("metadata") if isinstance(metadata.get("metadata"), dict) else {}
+    return {
+        "entity_external_id": row.get("entity_external_id"),
+        "entity_display_name": row.get("entity_display_name"),
+        "filename": row.get("filename"),
+        "object_type": row.get("object_type"),
+        "category": metadata.get("category") or nested.get("category"),
+        "document_type": metadata.get("document_type") or nested.get("document_type"),
+        "jurisdiction": metadata.get("jurisdiction") or nested.get("jurisdiction"),
+        "risk_rating": metadata.get("risk_rating") or nested.get("risk_rating"),
+        "source_system": row.get("source_system"),
+        "sha256": row.get("sha256"),
+        "snippet": str(row.get("snippet") or "")[:600],
+        "hdu_name": row.get("hdu_name"),
+    }
+
+
+def _public_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in row.items() if not key.startswith("_")}
 
 
 def _structured_index_search(db: Session, service: TrustVaultFeatureService, structured: StructuredQuery, query: str, limit: int) -> dict[str, Any]:
     customers = service.customers(risk_rating=structured.risk_rating, jurisdiction=structured.jurisdiction)
     entity_filter_applied = bool(structured.risk_rating or structured.jurisdiction)
     allowed_external_ids = {customer["external_id"] for customer in customers}
-    allowed_by_id = {customer["id"]: customer for customer in customers}
     diagnostics = {
         "entity_filter_applied": entity_filter_applied,
         "requested_risk_rating": structured.risk_rating,
@@ -225,7 +238,7 @@ def _structured_index_search(db: Session, service: TrustVaultFeatureService, str
         rows.append(row)
 
     rows.sort(key=lambda item: (item.get("match_score", 0), item.get("entity_external_id", ""), item.get("filename", "")), reverse=True)
-    limited = rows[:limit]
+    limited = [_public_row(row) for row in rows[:limit]]
     diagnostics["candidate_index_entry_count"] = len(entries)
     diagnostics["matched_before_limit"] = len(rows)
     return {"query": query, "entity_id": None, "entity_external_id": None, "container_version_id": None, "result_count": len(limited), "results": limited, "filtered_entity_count": len(customers) if entity_filter_applied else None, "diagnostics": diagnostics}
@@ -257,7 +270,6 @@ def _structured_row_match(row: dict[str, Any], structured: StructuredQuery) -> d
     category = _norm(metadata.get("category") or nested_metadata.get("category") or row.get("object_type"))
     document_type = _norm(metadata.get("document_type") or nested_metadata.get("document_type") or row.get("object_type"))
     object_type = _norm(row.get("object_type"))
-    source_system = _norm(row.get("source_system"))
     filename = _norm(row.get("filename"))
     searchable = _text_norm(row.get("_searchable"))
 
@@ -399,7 +411,8 @@ def execute_query(
             ai_model=meta.get("ai_model"),
             metadata={"query_mode": structured.execute_with, "interpretation": meta},
         )
-        summary = _summarise_if_requested(request, result.get("results", []) if isinstance(result.get("results"), list) else [result], db, execution_source, audit_logger)
+        rows = result.get("results", []) if isinstance(result.get("results"), list) else [result]
+        summary = _summarise_if_requested(request, rows, db, execution_source, audit_logger)
         return {"structured_query": sq, "interpretation": meta, "execution_source": execution_source, "result": result, "ai_summary": summary}
 
     if structured.entity_external_id:
