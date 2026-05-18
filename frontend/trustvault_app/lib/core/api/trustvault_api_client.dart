@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 
+import '../auth/auth_controller.dart';
+
 class TrustVaultApiClient {
   TrustVaultApiClient()
       : _dio = Dio(
@@ -13,11 +15,55 @@ class TrustVaultApiClient {
             connectTimeout: const Duration(seconds: 10),
             receiveTimeout: const Duration(seconds: 60),
           ),
-        );
+        ) {
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          final token = AuthController.instance.accessToken;
+          if (token != null && token.isNotEmpty) {
+            options.headers['Authorization'] = 'Bearer $token';
+          }
+          handler.next(options);
+        },
+      ),
+    );
+  }
 
   final Dio _dio;
 
   String get baseUrl => _dio.options.baseUrl;
+
+  Future<Map<String, dynamic>> login({required String email, required String verifier}) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/auth/login',
+      data: <String, dynamic>{'email': email, 'verifier': verifier},
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> getCurrentUser() async => _getMap('/api/v1/auth/me');
+  Future<Map<String, dynamic>> getAvailableRoles() async => _getMap('/api/v1/auth/roles');
+  Future<Map<String, dynamic>> getUsers() async => _getMap('/api/v1/auth/users');
+
+  Future<Map<String, dynamic>> createUser({required String email, required String displayName, required List<String> roles, String status = 'active'}) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/api/v1/auth/users',
+      data: <String, dynamic>{'email': email, 'display_name': displayName, 'roles': roles, 'status': status},
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> updateUser({required String userId, String? displayName, List<String>? roles, String? status}) async {
+    final response = await _dio.patch<Map<String, dynamic>>(
+      '/api/v1/auth/users/$userId',
+      data: <String, dynamic>{
+        if (displayName != null) 'display_name': displayName,
+        if (roles != null) 'roles': roles,
+        if (status != null) 'status': status,
+      },
+    );
+    return response.data ?? <String, dynamic>{};
+  }
 
   Future<Map<String, dynamic>> getHealth() async => _getMap('/health');
   Future<Map<String, dynamic>> getApiHealth() async => _getMap('/api/v1/health');
@@ -100,38 +146,25 @@ class TrustVaultApiClient {
   Future<Map<String, dynamic>> inspectEntityFits(String entityId) async => _getMap('/api/v1/fits/entities/$entityId/inspect');
 
   Future<Map<String, dynamic>> searchEntityFits(String entityId, String query) async {
-    final response = await _dio.post<Map<String, dynamic>>(
-      '/api/v1/fits/entities/$entityId/search',
-      data: <String, dynamic>{'query': query, 'limit': 50},
-    );
+    final response = await _dio.post<Map<String, dynamic>>('/api/v1/fits/entities/$entityId/search', data: <String, dynamic>{'query': query, 'limit': 50});
     return response.data ?? <String, dynamic>{};
   }
 
   Future<Map<String, dynamic>> searchFitsIndex({required String query, String? entityExternalId}) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/fits/index/search',
-      data: <String, dynamic>{
-        'query': query,
-        'limit': 50,
-        if (entityExternalId != null && entityExternalId.isNotEmpty) 'entity_external_id': entityExternalId,
-      },
+      data: <String, dynamic>{'query': query, 'limit': 50, if (entityExternalId != null && entityExternalId.isNotEmpty) 'entity_external_id': entityExternalId},
     );
     return response.data ?? <String, dynamic>{};
   }
 
   Future<Map<String, dynamic>> rebuildFitsIndex({String? entityExternalId}) async {
-    final response = await _dio.post<Map<String, dynamic>>(
-      '/api/v1/fits/index/rebuild',
-      data: <String, dynamic>{if (entityExternalId != null) 'entity_external_id': entityExternalId},
-    );
+    final response = await _dio.post<Map<String, dynamic>>('/api/v1/fits/index/rebuild', data: <String, dynamic>{if (entityExternalId != null) 'entity_external_id': entityExternalId});
     return response.data ?? <String, dynamic>{};
   }
 
   Future<Map<String, dynamic>> rebuildEntityContainer(String entityExternalId) async {
-    final response = await _dio.post<Map<String, dynamic>>(
-      '/api/v1/containers/rebuild',
-      data: <String, dynamic>{'entity_external_id': entityExternalId},
-    );
+    final response = await _dio.post<Map<String, dynamic>>('/api/v1/containers/rebuild', data: <String, dynamic>{'entity_external_id': entityExternalId});
     return response.data ?? <String, dynamic>{};
   }
 
@@ -145,24 +178,15 @@ class TrustVaultApiClient {
   String evidenceDownloadUrl(String evidenceObjectId) => '$baseUrl/api/v1/evidence/$evidenceObjectId/download';
 
   Future<Map<String, dynamic>> uploadSourceFolderZip({required String filename, required Uint8List bytes}) async {
-    final formData = FormData.fromMap(<String, dynamic>{
-      'file': MultipartFile.fromBytes(bytes, filename: filename),
-    });
-    final response = await _dio.post<Map<String, dynamic>>(
-      '/api/v1/ingestion/source-folder/upload',
-      data: formData,
-    );
+    final formData = FormData.fromMap(<String, dynamic>{'file': MultipartFile.fromBytes(bytes, filename: filename)});
+    final response = await _dio.post<Map<String, dynamic>>('/api/v1/ingestion/source-folder/upload', data: formData);
     return response.data ?? <String, dynamic>{};
   }
 
   Future<Map<String, dynamic>> queueEntityContainerRebuild(String entityExternalId) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/jobs',
-      data: <String, dynamic>{
-        'job_type': 'rebuild_entity_container',
-        'payload': <String, dynamic>{'entity_external_id': entityExternalId},
-        'created_by_user_id': 'local-user',
-      },
+      data: <String, dynamic>{'job_type': 'rebuild_entity_container', 'payload': <String, dynamic>{'entity_external_id': entityExternalId}, 'created_by_user_id': 'local-user'},
     );
     return response.data ?? <String, dynamic>{};
   }
@@ -170,21 +194,11 @@ class TrustVaultApiClient {
   Future<Map<String, dynamic>> getEvidencePreview(String evidenceObjectId) async => _getMap('/api/v1/evidence/$evidenceObjectId/preview');
 
   Future<Map<String, dynamic>> searchEvidence(String query) async {
-    final response = await _dio.post<Map<String, dynamic>>(
-      '/api/v1/evidence/search',
-      data: <String, dynamic>{'query': query, 'limit': 50},
-    );
+    final response = await _dio.post<Map<String, dynamic>>('/api/v1/evidence/search', data: <String, dynamic>{'query': query, 'limit': 50});
     return response.data ?? <String, dynamic>{};
   }
 
-  Future<Map<String, dynamic>> ingestTextEvidence({
-    required String entityExternalId,
-    required String entityDisplayName,
-    required String objectType,
-    required String sourceSystem,
-    required String filename,
-    required String text,
-  }) async {
+  Future<Map<String, dynamic>> ingestTextEvidence({required String entityExternalId, required String entityDisplayName, required String objectType, required String sourceSystem, required String filename, required String text}) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/ingestion/text',
       data: <String, dynamic>{
@@ -203,23 +217,11 @@ class TrustVaultApiClient {
   }
 
   Future<Map<String, dynamic>> createJob(String jobType) async {
-    final response = await _dio.post<Map<String, dynamic>>(
-      '/api/v1/jobs',
-      data: <String, dynamic>{
-        'job_type': jobType,
-        'payload': <String, dynamic>{'source': 'flutter_app'},
-        'created_by_user_id': 'local-user',
-      },
-    );
+    final response = await _dio.post<Map<String, dynamic>>('/api/v1/jobs', data: <String, dynamic>{'job_type': jobType, 'payload': <String, dynamic>{'source': 'flutter_app'}, 'created_by_user_id': 'local-user'});
     return response.data ?? <String, dynamic>{};
   }
 
-  Future<Map<String, dynamic>> createTextIngestionJob({
-    required String entityExternalId,
-    required String entityDisplayName,
-    required String filename,
-    required String text,
-  }) async {
+  Future<Map<String, dynamic>> createTextIngestionJob({required String entityExternalId, required String entityDisplayName, required String filename, required String text}) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/jobs',
       data: <String, dynamic>{
