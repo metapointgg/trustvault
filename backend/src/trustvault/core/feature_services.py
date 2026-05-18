@@ -330,15 +330,18 @@ class TrustVaultFeatureService:
         }
 
     def _match_rule(self, rule: RulesetRule, manifest: list[dict[str, Any]]) -> dict[str, Any] | None:
+        rule_category = self._normalise(rule.category)
+        rule_document_type = self._normalise(rule.document_type)
         for item in manifest:
-            values = {
-                str(item.get("category", "")).lower(),
-                str(item.get("document_type", "")).lower(),
-                str(item.get("object_type", "")).lower(),
-                str(item.get("filename", "")).lower(),
-            }
-            joined = " ".join(values)
-            if rule.category.lower() in values or rule.document_type.lower() in values or rule.rule_key.lower() in joined:
+            category = self._normalise(item.get("category"))
+            document_type = self._normalise(item.get("document_type"))
+            object_type = self._normalise(item.get("object_type"))
+            category_matches = not rule_category or category == rule_category
+            document_type_matches = not rule_document_type or any(
+                value == rule_document_type or value.startswith(f"{rule_document_type} ")
+                for value in (document_type, object_type)
+            )
+            if category_matches and document_type_matches:
                 return item
         return None
 
