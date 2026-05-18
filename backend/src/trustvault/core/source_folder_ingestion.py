@@ -3,7 +3,7 @@ import json
 import mimetypes
 import uuid
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -26,14 +26,16 @@ class SourceFolderIngestionResult:
     skipped_count: int
     evidence_object_ids: list[str]
     duplicate_count: int = 0
+    duplicate_items: list[dict[str, Any]] = field(default_factory=list)
 
 
 class SourceFolderIngestionService:
     """Ingests a customer evidence source folder ZIP.
 
-    Ingestion is idempotent by source path and SHA-256 for a given entity. Re-running
-    the same source folder will skip unchanged evidence rather than appending duplicate
-    records and creating a larger FITS archive.
+    Ingestion is idempotent by source path/SHA and by evidence payload SHA for a
+    given entity. Re-running the same source folder, or dropping the same evidence
+    under a different file name, skips unchanged evidence rather than appending
+    duplicate records and creating a larger FITS archive.
     """
 
     IGNORED_PREFIXES = ("__MACOSX/",)
@@ -51,12 +53,13 @@ class SourceFolderIngestionService:
             entity_external_id = customer.get("entity_id") or root.rstrip("/") or f"entity-{uuid.uuid4()}"
             entity_display_name = customer.get("display_name") or entity_external_id
             entity = self._get_or_create_entity(entity_external_id, entity_display_name, customer)
-            existing_source_hashes = self._existing_source_hashes(entity)
+            existing_source_hashes, existing_content_hashes = self._existing_evidence_fingerprints(entity)
 
             search_text_by_stem = self._read_search_texts(archive, names)
             evidence_ids: list[str] = []
             skipped_count = 0
             duplicate_count = 0
+            duplicate_items: list[dict[str, Any]] = []
             source_systems: set[str] = set()
 
             for name in names:
@@ -77,6 +80,24 @@ class SourceFolderIngestionService:
                 if source_key in existing_source_hashes:
                     duplicate_count += 1
                     skipped_count += 1
+                    duplicate_items.append(
+                        {
+                            "source_path": relative,
+                            "sha256": content_hash,
+                            "reason": "same_source_path_and_payload_already_ingested",
+                        }
+                    )
+                    continue
+                if content_hash in existing_content_hashes:
+                    duplicate_count += 1
+                    skipped_count += 1
+                    duplicate_items.append(
+                        {
+                            "source_path": relative,
+                            "sha256": content_hash,
+                            "reason": "same_payload_already_ingested_for_entity",
+                        }
+                    )
                     continue
 
                 object_type = self._object_type_from_path(relative)
@@ -125,6 +146,7 @@ class SourceFolderIngestionService:
                 )
                 evidence_ids.append(str(evidence.id))
                 existing_source_hashes.add(source_key)
+                existing_content_hashes.add(content_hash)
 
             for source_system in sorted(source_systems):
                 self._upsert_source_system(source_system)
@@ -138,17 +160,21 @@ class SourceFolderIngestionService:
                 source_system_count=len(source_systems),
                 skipped_count=skipped_count,
                 duplicate_count=duplicate_count,
+                duplicate_items=duplicate_items,
                 evidence_object_ids=evidence_ids,
             )
 
-    def _existing_source_hashes(self, entity: Entity) -> set[tuple[str, str]]:
+    def _existing_evidence_fingerprints(self, entity: Entity) -> tuple[set[tuple[str, str]], set[str]]:
         rows = self.db.scalars(select(EvidenceObject).where(EvidenceObject.entity_id == entity.id)).all()
-        result: set[tuple[str, str]] = set()
+        source_hashes: set[tuple[str, str]] = set()
+        content_hashes: set[str] = set()
         for row in rows:
+            if row.sha256:
+                content_hashes.add(row.sha256)
             source_path = (row.metadata_json or {}).get("source_path")
             if source_path and row.sha256:
-                result.add((source_path, row.sha256))
-        return result
+                source_hashes.add((source_path, row.sha256))
+        return source_hashes, content_hashes
 
     def _include_zip_entry(self, name: str) -> bool:
         if any(name.startswith(prefix) for prefix in self.IGNORED_PREFIXES):
