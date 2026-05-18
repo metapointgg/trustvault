@@ -52,7 +52,8 @@ STOP_WORDS = {
     "evidence", "documentation", "documents", "document", "client", "clients", "customer", "customers", "who", "are", "is", "with",
 }
 ONBOARDING_CATEGORIES = {"customer_documents", "identity", "proof_of_address", "source_of_wealth", "cdd_review", "communications"}
-NON_AI_SUMMARY_SOURCES = {"entity_metadata", "archive_status", "entity_summary", "payload_metadata"}
+NON_AI_SUMMARY_SOURCES = {"entity_metadata", "archive_status", "entity_summary", "payload_metadata", "completeness_rules"}
+DETERMINISTIC_AUTO_CAPABILITIES = {"archive_status", "entity_discovery", "entity_summary", "payload_metadata", "completeness_check"}
 
 
 def _settings_values(db: Session) -> dict[str, Any]:
@@ -71,6 +72,10 @@ def _ai_enabled_for_mode(mode: str, values: dict[str, Any]) -> bool:
     if mode == "deterministic":
         return False
     return str(values.get("ai_provider", "none")).lower() in {"lm_studio", "lmstudio"}
+
+
+def _auto_should_skip_ai_interpretation(structured: StructuredQuery) -> bool:
+    return structured.capability in DETERMINISTIC_AUTO_CAPABILITIES
 
 
 def _norm(value: Any) -> str:
@@ -115,7 +120,15 @@ def _expand_query_filters(categories: list[str], document_types: list[str], sear
     return _unique(cats), _unique(docs), _unique(terms)
 
 
-def _structured_with_filters(structured: StructuredQuery, categories: list[str], document_types: list[str], search_terms: list[str], capability: str | None = None, completeness_only: bool | None = None, missing_evidence_type: str | None = None) -> StructuredQuery:
+def _structured_with_filters(
+    structured: StructuredQuery,
+    categories: list[str],
+    document_types: list[str],
+    search_terms: list[str],
+    capability: str | None = None,
+    completeness_only: bool | None = None,
+    missing_evidence_type: str | None = None,
+) -> StructuredQuery:
     return StructuredQuery(
         raw_query=structured.raw_query,
         scope=structured.scope,
@@ -148,9 +161,7 @@ def _normalise_ai_payload(ai_payload: dict[str, Any], deterministic: StructuredQ
     ai_capability = ai_payload.get("capability")
     capability = ai_capability if ai_capability in {"evidence_search", "completeness_check", "entity_discovery", "archive_status", "entity_summary", "payload_metadata"} else det.get("capability")
 
-    # Deterministic system-level and metadata capabilities must not be weakened
-    # by an LLM returning generic evidence_search.
-    if det.get("capability") in {"archive_status", "entity_summary", "payload_metadata"}:
+    if det.get("capability") in {"archive_status", "entity_summary", "payload_metadata", "completeness_check"}:
         capability = det.get("capability")
     if det.get("capability") == "entity_discovery" and not snapshot_id and not document_types and not categories:
         capability = "entity_discovery"
@@ -205,10 +216,17 @@ def _interpret(request: InterpretRequest | ExecuteRequest, db: Session) -> tuple
         "ai_model": None,
         "ai_base_url": values.get("lm_studio_base_url"),
         "ai_warnings": [],
+        "ai_skipped": False,
+        "ai_skip_reason": None,
     }
     if not _ai_enabled_for_mode(request.mode, values):
         if request.mode == "ai":
             meta["ai_warnings"].append("AI mode requested but effective ai_provider is not lm_studio; deterministic interpretation used")
+        return deterministic, meta
+
+    if request.mode == "auto" and _auto_should_skip_ai_interpretation(deterministic):
+        meta["ai_skipped"] = True
+        meta["ai_skip_reason"] = f"auto mode used deterministic {deterministic.capability} interpretation"
         return deterministic, meta
 
     ai = LmStudioAiProvider(str(values.get("lm_studio_base_url") or "http://localhost:1234"), model=_lm_studio_model(values, purpose="query"))
@@ -232,12 +250,18 @@ def _deterministic_rows_summary(rows: list[dict[str, Any]], *, title: str = "Ret
     return "\n".join(lines)
 
 
+def _summary_should_use_ai(request: ExecuteRequest, execution_source: str) -> bool:
+    if request.mode != "ai":
+        return False
+    return execution_source not in NON_AI_SUMMARY_SOURCES
+
+
 def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]], db: Session, execution_source: str, audit_logger: AuditLogger) -> dict[str, Any] | None:
     if not request.include_ai_summary:
         return None
     if not rows:
         return {"available": False, "warning": "No rows were returned to summarise."}
-    if execution_source in NON_AI_SUMMARY_SOURCES:
+    if not _summary_should_use_ai(request, execution_source):
         summary = _deterministic_entity_summary(rows) if execution_source == "entity_metadata" else _deterministic_rows_summary(rows, title=execution_source)
         audit_logger.log(
             AI_SUMMARY_GENERATED,
@@ -247,7 +271,7 @@ def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]],
             ai_used=False,
             ai_provider="trustvault",
             ai_model=f"deterministic_{execution_source}_summary",
-            metadata={"operation": f"deterministic_{execution_source}_summary", "row_count": len(rows)},
+            metadata={"operation": f"deterministic_{execution_source}_summary", "row_count": len(rows), "request_mode": request.mode},
         )
         return {
             "available": True,
@@ -522,8 +546,7 @@ def _structured_index_search(db: Session, service: TrustVaultFeatureService, str
         "search_terms": structured.search_terms,
     }
 
-    statement = select(FitsIndexEntry).order_by(FitsIndexEntry.created_at.desc()).limit(5000)
-    entries = db.scalars(statement).all()
+    entries = db.scalars(select(FitsIndexEntry).order_by(FitsIndexEntry.created_at.desc()).limit(5000)).all()
     rows: list[dict[str, Any]] = []
     matched_by_evidence_metadata: set[str] = set()
     matched_by_entity_metadata: set[str] = set()
