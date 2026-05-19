@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api/trustvault_api_client.dart';
 import '../../shared/selected_customer.dart';
+import '../../shared/trustvault_data_grid.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -175,45 +176,18 @@ class _SearchScreenState extends State<SearchScreen> {
               const SizedBox(height: 8),
               const Text('Ask TrustVault a question and review evidence rows. Click evidence rows to preview them, or entity rows to open the entity context.'),
             ])),
-            OutlinedButton.icon(
-              onPressed: () => setState(() {
-                _scenariosFuture = _apiClient.getQueryScenarios();
-                _entitiesFuture = _apiClient.getCustomers();
-              }),
-              icon: const Icon(Icons.refresh),
-              label: const Text('Refresh'),
-            ),
+            OutlinedButton.icon(onPressed: () => setState(() { _scenariosFuture = _apiClient.getQueryScenarios(); _entitiesFuture = _apiClient.getCustomers(); }), icon: const Icon(Icons.refresh), label: const Text('Refresh')),
           ]),
           const SizedBox(height: 20),
-          _SearchForm(
-            queryController: _queryController,
-            entityController: _entityController,
-            scenariosFuture: _scenariosFuture,
-            selectedEntityOnly: _selectedEntityOnly,
-            includeAiSummary: _includeAiSummary,
-            mode: _mode,
-            limit: _limit,
-            loading: _loading,
-            onExample: _applyExample,
-            onSelectedEntityOnlyChanged: (value) => setState(() {
-              _selectedEntityOnly = value;
-              if (value) _syncSelectedEntity();
-            }),
-            onIncludeAiSummaryChanged: (value) => setState(() => _includeAiSummary = value),
-            onModeChanged: (value) => setState(() => _mode = value),
-            onLimitChanged: (value) => setState(() => _limit = value),
-            onSearch: _run,
-          ),
+          _SearchForm(queryController: _queryController, entityController: _entityController, scenariosFuture: _scenariosFuture, selectedEntityOnly: _selectedEntityOnly, includeAiSummary: _includeAiSummary, mode: _mode, limit: _limit, loading: _loading, onExample: _applyExample, onSelectedEntityOnlyChanged: (value) => setState(() { _selectedEntityOnly = value; if (value) _syncSelectedEntity(); }), onIncludeAiSummaryChanged: (value) => setState(() => _includeAiSummary = value), onModeChanged: (value) => setState(() => _mode = value), onLimitChanged: (value) => setState(() => _limit = value), onSearch: _run),
           if (_selectedEntityOnly) ...[
             const SizedBox(height: 16),
-            _EntityPicker(future: _entitiesFuture, controller: _entityFilterController, rowsBuilder: _filteredEntities, onSelected: (entity) {
-              SelectedCustomerController.select(entity);
-              _entityController.text = '${entity['external_id']}';
-            }),
+            _EntityPicker(future: _entitiesFuture, controller: _entityFilterController, rowsBuilder: _filteredEntities, onSelected: (entity) { SelectedCustomerController.select(entity); _entityController.text = '${entity['external_id']}'; }),
           ],
           const SizedBox(height: 20),
           if (_error != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)))),
-          SizedBox(height: 820, child: _loading ? const Center(child: CircularProgressIndicator()) : _response == null ? const _EmptyState() : _ResultPanel(response: _response!, onOpenRow: _openRow, onPreview: _openEvidence, onJson: _showJson)),
+          if (_loading) const SizedBox(height: 420, child: Center(child: CircularProgressIndicator())) else if (_response == null) const _EmptyState() else _ResultPanel(response: _response!, onOpenRow: _openRow, onPreview: _openEvidence, onJson: _showJson),
+          const SizedBox(height: 32),
         ]),
       ),
     );
@@ -262,12 +236,7 @@ class _ExamplesButton extends StatelessWidget {
   final Future<Map<String, dynamic>> future;
   final ValueChanged<String> onSelected;
   @override
-  Widget build(BuildContext context) => OutlinedButton.icon(icon: const Icon(Icons.lightbulb_outline), label: const Text('Browse examples'), onPressed: () async {
-    final data = await future;
-    if (!context.mounted) return;
-    final selected = await showDialog<String>(context: context, builder: (_) => _ExamplesDialog(data: data));
-    if (selected != null) onSelected(selected);
-  });
+  Widget build(BuildContext context) => OutlinedButton.icon(icon: const Icon(Icons.lightbulb_outline), label: const Text('Browse examples'), onPressed: () async { final data = await future; if (!context.mounted) return; final selected = await showDialog<String>(context: context, builder: (_) => _ExamplesDialog(data: data)); if (selected != null) onSelected(selected); });
 }
 
 class _ExamplesDialog extends StatefulWidget {
@@ -344,21 +313,63 @@ class _ResultPanelState extends State<_ResultPanel> {
   @override
   Widget build(BuildContext context) {
     final result = widget.response['result'] is Map<String, dynamic> ? widget.response['result'] as Map<String, dynamic> : widget.response;
-    final rows = (result['results'] as List<dynamic>? ?? <dynamic>[]).whereType<Map<String, dynamic>>().toList();
+    final rows = (result['results'] as List<dynamic>? ?? <dynamic>[]).whereType<Map<String, dynamic>>().map(_flattenRow).toList();
     final rawSummary = '${(widget.response['ai_summary'] as Map<String, dynamic>?)?['summary'] ?? ''}';
     final summary = _normaliseSummary(rawSummary);
-    return Card(child: Padding(padding: const EdgeInsets.all(20), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Wrap(spacing: 8, runSpacing: 8, children: [Chip(label: Text('Results: ${result['result_count'] ?? rows.length}')), Chip(label: Text('Source: ${widget.response['execution_source'] ?? '-'}')), Chip(label: Text('Grid rows: ${rows.length}'))]),
-      if (summary.trim().isNotEmpty) ...[
-        const SizedBox(height: 12),
-        _NarrativeSummary(summary: summary, expanded: _summaryExpanded, onToggle: () => setState(() => _summaryExpanded = !_summaryExpanded)),
-      ],
+      if (summary.trim().isNotEmpty) ...[const SizedBox(height: 12), _NarrativeSummary(summary: summary, expanded: _summaryExpanded, onToggle: () => setState(() => _summaryExpanded = !_summaryExpanded))],
       const SizedBox(height: 12),
       Wrap(spacing: 8, children: [OutlinedButton(onPressed: () => widget.onJson('Structured query', widget.response['structured_query'] ?? {}), child: const Text('Structured query')), OutlinedButton(onPressed: () => widget.onJson('Interpretation', widget.response['interpretation'] ?? {}), child: const Text('Interpretation')), OutlinedButton(onPressed: () => widget.onJson('Diagnostics', result['diagnostics'] ?? {}), child: const Text('Diagnostics')), OutlinedButton(onPressed: () => widget.onJson('Raw JSON', widget.response), child: const Text('Raw JSON'))]),
       const SizedBox(height: 12),
-      Expanded(child: rows.isEmpty ? const Center(child: Text('No rows returned.')) : _ResultsTable(rows: rows, onOpenRow: widget.onOpenRow, onPreview: widget.onPreview)),
-    ])));
+      TrustVaultDataGrid(
+        title: 'Search results',
+        subtitle: 'Click a row to preview evidence or open the entity context.',
+        rows: rows,
+        columns: _columns(),
+        initialSortColumnKey: 'entity_external_id',
+        onRowTap: (row) => widget.onOpenRow(row),
+        exportFilename: 'trustvault-search-results.csv',
+        emptyText: 'No rows returned.',
+        height: 620,
+        dense: true,
+      ),
+    ]);
   }
+
+  Map<String, dynamic> _flattenRow(Map<String, dynamic> row) {
+    final metadata = row['metadata'] as Map<String, dynamic>? ?? <String, dynamic>{};
+    final nested = metadata['metadata'] as Map<String, dynamic>? ?? <String, dynamic>{};
+    return <String, dynamic>{
+      ...row,
+      'category': row['category'] ?? metadata['category'] ?? nested['category'],
+      'document_type': row['document_type'] ?? metadata['document_type'] ?? nested['document_type'],
+      'risk_rating': row['risk_rating'] ?? metadata['risk_rating'] ?? nested['risk_rating'],
+      'jurisdiction': row['jurisdiction'] ?? metadata['jurisdiction'] ?? nested['jurisdiction'],
+      'retention_class': row['retention_class'] ?? metadata['retention_class'] ?? nested['retention_class'],
+      'legal_hold_status': row['legal_hold_status'] ?? metadata['legal_hold_status'] ?? nested['legal_hold_status'],
+      'snippet': row['snippet'] ?? row['text_content'] ?? row['status'] ?? row['summary_type'] ?? '',
+    };
+  }
+
+  List<TrustVaultDataGridColumn> _columns() => [
+    const TrustVaultDataGridColumn(key: 'entity_external_id', label: 'Entity', width: 130),
+    const TrustVaultDataGridColumn(key: 'entity_display_name', label: 'Name', width: 220),
+    const TrustVaultDataGridColumn(key: 'risk_rating', label: 'Risk', width: 90),
+    const TrustVaultDataGridColumn(key: 'jurisdiction', label: 'Jurisdiction', width: 130),
+    const TrustVaultDataGridColumn(key: 'filename', label: 'Filename', width: 260),
+    const TrustVaultDataGridColumn(key: 'category', label: 'Category', width: 160),
+    const TrustVaultDataGridColumn(key: 'document_type', label: 'Document type', width: 180),
+    const TrustVaultDataGridColumn(key: 'source_system', label: 'Source', width: 160),
+    const TrustVaultDataGridColumn(key: 'match_score', label: 'Score', width: 80),
+    const TrustVaultDataGridColumn(key: 'status', label: 'Status', width: 120, visibleByDefault: false),
+    const TrustVaultDataGridColumn(key: 'rule_key', label: 'Rule key', width: 180, visibleByDefault: false),
+    const TrustVaultDataGridColumn(key: 'missing_evidence_type', label: 'Missing evidence', width: 180, visibleByDefault: false),
+    const TrustVaultDataGridColumn(key: 'sha256', label: 'SHA-256', width: 320, visibleByDefault: false),
+    const TrustVaultDataGridColumn(key: 'retention_class', label: 'Retention class', width: 160, visibleByDefault: false),
+    const TrustVaultDataGridColumn(key: 'legal_hold_status', label: 'Legal hold', width: 130, visibleByDefault: false),
+    const TrustVaultDataGridColumn(key: 'snippet', label: 'Snippet / status', width: 520),
+  ];
 
   String _normaliseSummary(String value) {
     final text = value.replaceAll('customers', 'entities').replaceAll('customer', 'entity').trim();
@@ -376,43 +387,11 @@ class _NarrativeSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final maxHeight = expanded ? 260.0 : 96.0;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          const Icon(Icons.summarize_outlined, size: 18),
-          const SizedBox(width: 8),
-          Expanded(child: Text('AI narrative summary', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700))),
-          TextButton(onPressed: onToggle, child: Text(expanded ? 'Collapse' : 'Expand')),
-        ]),
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          constraints: BoxConstraints(maxHeight: maxHeight),
-          child: Scrollbar(
-            thumbVisibility: expanded,
-            child: SingleChildScrollView(child: SelectableText(summary)),
-          ),
-        ),
-      ]),
-    );
+    return Container(width: double.infinity, padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [const Icon(Icons.summarize_outlined, size: 18), const SizedBox(width: 8), Expanded(child: Text('AI narrative summary', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700))), TextButton(onPressed: onToggle, child: Text(expanded ? 'Collapse' : 'Expand'))]),
+      AnimatedContainer(duration: const Duration(milliseconds: 150), constraints: BoxConstraints(maxHeight: maxHeight), child: Scrollbar(thumbVisibility: expanded, child: SingleChildScrollView(child: SelectableText(summary)))),
+    ]));
   }
-}
-
-class _ResultsTable extends StatelessWidget {
-  const _ResultsTable({required this.rows, required this.onOpenRow, required this.onPreview});
-  final List<Map<String, dynamic>> rows;
-  final Future<void> Function(Map<String, dynamic>) onOpenRow;
-  final Future<void> Function(Map<String, dynamic>) onPreview;
-  @override
-  Widget build(BuildContext context) => SingleChildScrollView(scrollDirection: Axis.horizontal, child: SingleChildScrollView(child: DataTable(showCheckboxColumn: false, columns: const [DataColumn(label: Text('Entity')), DataColumn(label: Text('Name')), DataColumn(label: Text('Risk')), DataColumn(label: Text('Jurisdiction')), DataColumn(label: Text('Filename')), DataColumn(label: Text('Category')), DataColumn(label: Text('Document type')), DataColumn(label: Text('Source')), DataColumn(label: Text('Score')), DataColumn(label: Text('Snippet / Status')), DataColumn(label: Text('Actions'))], rows: rows.map((row) {
-    final metadata = row['metadata'] as Map<String, dynamic>? ?? <String, dynamic>{};
-    final nested = metadata['metadata'] as Map<String, dynamic>? ?? <String, dynamic>{};
-    String value(String key) => '${row[key] ?? metadata[key] ?? nested[key] ?? '-'}';
-    final snippet = row['snippet'] ?? row['text_content'] ?? row['status'] ?? row['summary_type'] ?? '';
-    return DataRow(onSelectChanged: (_) => onOpenRow(row), cells: [DataCell(Text(value('entity_external_id'))), DataCell(SizedBox(width: 180, child: Text(value('entity_display_name'), overflow: TextOverflow.ellipsis))), DataCell(Text(value('risk_rating'))), DataCell(Text(value('jurisdiction'))), DataCell(SizedBox(width: 240, child: Text(value('filename'), overflow: TextOverflow.ellipsis))), DataCell(Text(value('category'))), DataCell(Text(value('document_type'))), DataCell(Text(value('source_system'))), DataCell(Text(value('match_score'))), DataCell(SizedBox(width: 500, child: Text('$snippet', overflow: TextOverflow.ellipsis, maxLines: 2))), DataCell(TextButton.icon(onPressed: row['evidence_object_id'] == null ? () => onOpenRow(row) : () => onPreview(row), icon: Icon(row['evidence_object_id'] == null ? Icons.business_outlined : Icons.visibility_outlined), label: Text(row['evidence_object_id'] == null ? 'Entity' : 'Preview')))]);
-  }).toList())));
 }
 
 class _EvidencePreview extends StatelessWidget {
