@@ -125,7 +125,7 @@ class TrustVaultApiClient {
   }
 
   Future<Map<String, dynamic>> updateRuleset({required String rulesetId, String? name, int? version, String? status, String? description}) async {
-    final response = await _dio.patch<Map<String, dynamic>>('/api/v1/rulesets/$rulesetId', data: <String, dynamic>{if (name != null) 'name': name, if (version != null) 'version': version, if (status != null) 'status': status, if (description != null) 'description': description});
+    final response = await _dio.patch<Map<String, dynamic>>('/api/v1/rulesets/$rulesetId', data: <String, dynamic>{if (name != null) 'name', if (version != null) 'version', if (status != null) 'status', if (description != null) 'description'});
     return response.data ?? <String, dynamic>{};
   }
 
@@ -211,6 +211,11 @@ class TrustVaultApiClient {
 
   Future<Uint8List> downloadFitsBytes(String containerVersionId) async {
     final response = await _dio.get<List<int>>('/api/v1/export/containers/$containerVersionId/fits', options: Options(responseType: ResponseType.bytes));
+    return Uint8List.fromList(response.data ?? <int>[]);
+  }
+
+  Future<Uint8List> downloadEvidenceBytes(String evidenceObjectId) async {
+    final response = await _dio.get<List<int>>('/api/v1/evidence/$evidenceObjectId/file', options: Options(responseType: ResponseType.bytes));
     return Uint8List.fromList(response.data ?? <int>[]);
   }
 
