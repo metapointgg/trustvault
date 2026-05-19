@@ -56,6 +56,28 @@ class TrustVaultApiClient {
     return response.data ?? <String, dynamic>{};
   }
 
+  Future<Map<String, dynamic>> getDocumentClassificationSettings() async => _getMap('/api/v1/settings/document-classification');
+
+  Future<Map<String, dynamic>> updateDocumentClassificationSettings(Map<String, dynamic> config) async {
+    final response = await _dio.put<Map<String, dynamic>>('/api/v1/settings/document-classification', data: <String, dynamic>{'config': config});
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<List<dynamic>> getUncategorisedEvidence({int limit = 500}) async {
+    final response = await _dio.get<List<dynamic>>('/api/v1/evidence/uncategorised', queryParameters: <String, dynamic>{'limit': limit});
+    return response.data ?? <dynamic>[];
+  }
+
+  Future<Map<String, dynamic>> updateEvidenceClassification({required List<String> evidenceObjectIds, required String documentType}) async {
+    final response = await _dio.patch<Map<String, dynamic>>('/api/v1/evidence/classification', data: <String, dynamic>{'evidence_object_ids': evidenceObjectIds, 'document_type': documentType, 'rebuild_container': true, 'rebuild_index': true});
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> updateCustomerInformation({required String customerId, required Map<String, dynamic> data}) async {
+    final response = await _dio.patch<Map<String, dynamic>>('/api/v1/customers/$customerId/information', data: data);
+    return response.data ?? <String, dynamic>{};
+  }
+
   Future<Map<String, dynamic>> getAutoIngestionStatus() async => _getMap('/api/v1/auto-ingestion/status');
 
   Future<Map<String, dynamic>> scanAutoIngestionFolder() async {
@@ -101,7 +123,7 @@ class TrustVaultApiClient {
   }
 
   Future<Map<String, dynamic>> updateRuleset({required String rulesetId, String? name, int? version, String? status, String? description}) async {
-    final response = await _dio.patch<Map<String, dynamic>>('/api/v1/rulesets/$rulesetId', data: <String, dynamic>{if (name != null) 'name': name, if (version != null) 'version': version, if (status != null) 'status': status, if (description != null) 'description': description});
+    final response = await _dio.patch<Map<String, dynamic>>('/api/v1/rulesets/$rulesetId', data: <String, dynamic>{if (name != null) 'name', if (version != null) 'version': version, if (status != null) 'status': status, if (description != null) 'description': description});
     return response.data ?? <String, dynamic>{};
   }
 
