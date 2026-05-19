@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:html' as html;
 
 import 'package:flutter/material.dart';
+import 'package:pluto_grid/pluto_grid.dart';
 
 class TrustVaultDataGridColumn {
   const TrustVaultDataGridColumn({
@@ -62,18 +63,17 @@ class TrustVaultDataGrid extends StatefulWidget {
 
 class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
   final TextEditingController _searchController = TextEditingController();
+  PlutoGridStateManager? _stateManager;
   late Set<String> _visibleColumnKeys;
   String _search = '';
-  String? _sortColumnKey;
-  bool _sortAscending = true;
 
   @override
   void initState() {
     super.initState();
     _visibleColumnKeys = widget.columns.where((column) => column.visibleByDefault).map((column) => column.key).toSet();
-    _sortColumnKey = widget.initialSortColumnKey;
-    _sortAscending = widget.initialSortAscending;
-    _searchController.addListener(() => setState(() => _search = _searchController.text.trim().toLowerCase()));
+    _searchController.addListener(() {
+      setState(() => _search = _searchController.text.trim().toLowerCase());
+    });
   }
 
   @override
@@ -84,6 +84,7 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
     if (_visibleColumnKeys.isEmpty) {
       _visibleColumnKeys = widget.columns.where((column) => column.visibleByDefault).map((column) => column.key).toSet();
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncColumnVisibility());
   }
 
   @override
@@ -94,51 +95,58 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
 
   List<TrustVaultDataGridColumn> get _visibleColumns => widget.columns.where((column) => _visibleColumnKeys.contains(column.key)).toList();
 
-  TrustVaultDataGridColumn? _columnByKey(String key) {
-    for (final column in widget.columns) {
-      if (column.key == key) return column;
-    }
-    return null;
-  }
-
   List<Map<String, dynamic>> get _filteredRows {
-    final rows = widget.rows.where((row) {
-      if (_search.isEmpty) return true;
+    if (_search.isEmpty) return widget.rows;
+    return widget.rows.where((row) {
       final haystack = widget.columns.map((column) => '${column.value(row) ?? ''}').join(' ').toLowerCase();
       return haystack.contains(_search);
     }).toList();
-    final sortKey = _sortColumnKey;
-    if (sortKey == null) return rows;
-    final sortColumn = _columnByKey(sortKey);
-    if (sortColumn == null) return rows;
-    rows.sort((a, b) {
-      final comparison = _compareValues(sortColumn.value(a), sortColumn.value(b));
-      return _sortAscending ? comparison : -comparison;
-    });
-    return rows;
   }
 
-  int _compareValues(Object? a, Object? b) {
-    if (a == null && b == null) return 0;
-    if (a == null) return -1;
-    if (b == null) return 1;
-    if (a is num && b is num) return a.compareTo(b);
-    final aNumber = num.tryParse('$a');
-    final bNumber = num.tryParse('$b');
-    if (aNumber != null && bNumber != null) return aNumber.compareTo(bNumber);
-    return '$a'.toLowerCase().compareTo('$b'.toLowerCase());
+  List<PlutoColumn> _plutoColumns() {
+    return widget.columns.map((column) {
+      return PlutoColumn(
+        title: column.label,
+        field: column.key,
+        type: PlutoColumnType.text(),
+        width: column.width ?? 160,
+        minWidth: 70,
+        enableSorting: column.sortable,
+        enableContextMenu: true,
+        enableDropToResize: true,
+        hide: !_visibleColumnKeys.contains(column.key),
+        renderer: (rendererContext) {
+          final raw = rendererContext.row.cells['_raw']?.value;
+          final sourceRow = raw is Map<String, dynamic> ? raw : <String, dynamic>{};
+          if (column.cellBuilder != null) return column.cellBuilder!(sourceRow);
+          final value = rendererContext.cell.value;
+          return Text('$value', overflow: TextOverflow.ellipsis, maxLines: widget.dense ? 1 : 2);
+        },
+      );
+    }).toList();
   }
 
-  void _sort(TrustVaultDataGridColumn column) {
-    if (!column.sortable) return;
-    setState(() {
-      if (_sortColumnKey == column.key) {
-        _sortAscending = !_sortAscending;
-      } else {
-        _sortColumnKey = column.key;
-        _sortAscending = true;
+  List<PlutoRow> _plutoRows() {
+    final rows = _filteredRows;
+    return rows.map((row) {
+      final cells = <String, PlutoCell>{'_raw': PlutoCell(value: row)};
+      for (final column in widget.columns) {
+        cells[column.key] = PlutoCell(value: column.value(row) ?? '');
       }
-    });
+      return PlutoRow(cells: cells);
+    }).toList();
+  }
+
+  void _syncColumnVisibility() {
+    final manager = _stateManager;
+    if (manager == null) return;
+    for (final column in manager.columns) {
+      if (column.field == '_raw') continue;
+      final shouldHide = !_visibleColumnKeys.contains(column.field);
+      if (column.hide != shouldHide) {
+        manager.hideColumn(column, shouldHide);
+      }
+    }
   }
 
   void _exportCsv() {
@@ -183,6 +191,7 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
                         }
                       });
                       setState(() {});
+                      WidgetsBinding.instance.addPostFrameCallback((_) => _syncColumnVisibility());
                     },
                   );
                 }).toList(),
@@ -194,6 +203,7 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
               onPressed: () {
                 setDialogState(() => _visibleColumnKeys = widget.columns.map((column) => column.key).toSet());
                 setState(() {});
+                WidgetsBinding.instance.addPostFrameCallback((_) => _syncColumnVisibility());
               },
               child: const Text('Show all'),
             ),
@@ -201,6 +211,7 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
               onPressed: () {
                 setDialogState(() => _visibleColumnKeys = widget.columns.where((column) => column.visibleByDefault).map((column) => column.key).toSet());
                 setState(() {});
+                WidgetsBinding.instance.addPostFrameCallback((_) => _syncColumnVisibility());
               },
               child: const Text('Reset'),
             ),
@@ -211,33 +222,46 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
     );
   }
 
+  void _onLoaded(PlutoGridOnLoadedEvent event) {
+    _stateManager = event.stateManager;
+    _stateManager!.setShowColumnFilter(true);
+    if (widget.initialSortColumnKey != null) {
+      final matching = _stateManager!.columns.where((column) => column.field == widget.initialSortColumnKey).toList();
+      if (matching.isNotEmpty) {
+        _stateManager!.sortAscending(matching.first, notify: false);
+        if (!widget.initialSortAscending) {
+          _stateManager!.sortDescending(matching.first, notify: false);
+        }
+      }
+    }
+  }
+
+  void _onSelected(PlutoGridOnSelectedEvent event) {
+    if (widget.onRowTap == null) return;
+    final raw = event.row?.cells['_raw']?.value;
+    if (raw is Map<String, dynamic>) widget.onRowTap!(raw);
+  }
+
   @override
   Widget build(BuildContext context) {
     final rows = _filteredRows;
-    final visibleColumns = _visibleColumns;
-    final sortColumnIndex = visibleColumns.indexWhere((column) => column.key == _sortColumnKey);
-    final table = rows.isEmpty
+    final grid = rows.isEmpty
         ? Center(child: Padding(padding: const EdgeInsets.all(32), child: Text(widget.emptyText)))
-        : SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: SingleChildScrollView(
-              child: DataTable(
-                showCheckboxColumn: false,
-                dataRowMinHeight: widget.dense ? 36 : null,
-                dataRowMaxHeight: widget.dense ? 54 : null,
-                headingRowHeight: widget.dense ? 44 : null,
-                sortColumnIndex: sortColumnIndex >= 0 ? sortColumnIndex : null,
-                sortAscending: _sortAscending,
-                columns: visibleColumns.map((column) {
-                  return DataColumn(label: Text(column.label), onSort: column.sortable ? (_, __) => _sort(column) : null);
-                }).toList(),
-                rows: rows.map((row) {
-                  final cells = visibleColumns.map((column) {
-                    final content = column.cellBuilder?.call(row) ?? Text('${column.value(row) ?? '-'}', overflow: TextOverflow.ellipsis, maxLines: 2);
-                    return DataCell(SizedBox(width: column.width, child: content));
-                  }).toList();
-                  return DataRow(onSelectChanged: widget.onRowTap == null ? null : (_) => widget.onRowTap!(row), cells: cells);
-                }).toList(),
+        : PlutoGrid(
+            key: ValueKey('${widget.title}-${widget.rows.length}-${_search}-${_visibleColumnKeys.join('|')}'),
+            columns: _plutoColumns(),
+            rows: _plutoRows(),
+            mode: widget.onRowTap == null ? PlutoGridMode.normal : PlutoGridMode.selectWithOneTap,
+            onLoaded: _onLoaded,
+            onSelected: _onSelected,
+            configuration: PlutoGridConfiguration(
+              columnSize: const PlutoGridColumnSizeConfig(autoSizeMode: PlutoAutoSizeMode.none),
+              style: PlutoGridStyleConfig(
+                rowHeight: widget.dense ? 34 : 42,
+                columnHeight: widget.dense ? 38 : 44,
+                activatedColor: Theme.of(context).colorScheme.primaryContainer,
+                gridBorderColor: Theme.of(context).colorScheme.outlineVariant,
+                borderColor: Theme.of(context).colorScheme.outlineVariant,
               ),
             ),
           );
@@ -275,7 +299,7 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
               decoration: const InputDecoration(border: OutlineInputBorder(), prefixIcon: Icon(Icons.search), labelText: 'Search this grid'),
             ),
             const SizedBox(height: 12),
-            SizedBox(height: widget.height, child: Scrollbar(thumbVisibility: true, child: table)),
+            SizedBox(height: widget.height, child: grid),
           ],
         ),
       ),
