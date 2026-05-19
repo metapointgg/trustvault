@@ -31,54 +31,14 @@ class _CompletenessScreenState extends State<CompletenessScreen> {
   Future<_CompletenessViewModel> _load() async {
     final generation = ++_loadGeneration;
     final entities = (await _apiClient.getCustomers(limit: 1000)).cast<Map<String, dynamic>>();
-    final filteredEntities = entities.where((entity) {
-      final riskOk = _riskRating == 'All' || '${entity['risk_rating'] ?? ''}' == _riskRating;
-      final jurisdictionOk = _jurisdiction == 'All' || '${entity['jurisdiction'] ?? ''}' == _jurisdiction;
-      final entityOk = _entityMode == 'All entities' || entity['external_id'] == _selectedEntityExternalId;
-      return riskOk && jurisdictionOk && entityOk;
-    }).toList();
-
-    final rows = <Map<String, dynamic>>[];
-    int complete = 0;
-    int incomplete = 0;
-    int missingItems = 0;
-
-    for (final entity in filteredEntities) {
-      final externalId = '${entity['external_id']}';
-      final report = await _apiClient.evaluateCompleteness(externalId);
-      final score = (report['score'] as num?)?.toInt() ?? 0;
-      final missingCount = (report['missing_count'] as num?)?.toInt() ?? 0;
-      if (missingCount > 0 || score < 100) {
-        incomplete += 1;
-      } else {
-        complete += 1;
-      }
-      missingItems += missingCount;
-
-      final ruleRows = (report['results'] as List<dynamic>? ?? <dynamic>[]).cast<Map<String, dynamic>>();
-      for (final rule in ruleRows) {
-        rows.add({
-          'entity_external_id': externalId,
-          'entity_display_name': entity['display_name'],
-          'entity_type': entity['entity_type'],
-          'risk_rating': entity['risk_rating'],
-          'jurisdiction': entity['jurisdiction'],
-          'entity_status': entity['status'],
-          'completeness_score': score,
-          'required_count': report['required_count'],
-          'present_count': report['present_count'],
-          'missing_count': missingCount,
-          'rule_status': rule['status'],
-          'rule_key': rule['rule_key'],
-          'category': rule['category'],
-          'document_type': rule['document_type'],
-          'required': rule['required'],
-          'matched_evidence_object_id': rule['matched_evidence_object_id'],
-          'matched_filename': rule['matched_filename'],
-          'ruleset_id': report['ruleset_id'],
-        });
-      }
-    }
+    final entityExternalId = _entityMode == 'Selected entity' ? _selectedEntityExternalId : null;
+    final summary = await _apiClient.getCompletenessSummary(
+      riskRating: _riskRating,
+      jurisdiction: _jurisdiction,
+      entityExternalId: entityExternalId,
+      limit: 1000,
+    );
+    final rows = (summary['rows'] as List<dynamic>? ?? <dynamic>[]).cast<Map<String, dynamic>>();
 
     Map<String, dynamic>? aiSummary;
     if (_includeAiSummary) {
@@ -88,18 +48,29 @@ class _CompletenessScreenState extends State<CompletenessScreen> {
 
     final model = _CompletenessViewModel(
       allEntities: entities,
-      filteredEntities: filteredEntities,
+      filteredEntities: _filteredEntitiesForFilters(entities),
       rows: rows,
-      evaluatedCount: filteredEntities.length,
-      completeCount: complete,
-      incompleteCount: incomplete,
-      missingEvidenceItems: missingItems,
+      evaluatedCount: (summary['entities_evaluated'] as num?)?.toInt() ?? 0,
+      completeCount: (summary['complete_count'] as num?)?.toInt() ?? 0,
+      incompleteCount: (summary['incomplete_count'] as num?)?.toInt() ?? 0,
+      missingEvidenceItems: (summary['missing_evidence_items'] as num?)?.toInt() ?? 0,
       aiSummary: aiSummary,
+      rulesetName: '${summary['ruleset_name'] ?? '-'}',
+      rulesetVersion: '${summary['ruleset_version'] ?? '-'}',
     );
     if (mounted && generation == _loadGeneration) {
       _lastData = model;
     }
     return model;
+  }
+
+  List<Map<String, dynamic>> _filteredEntitiesForFilters(List<Map<String, dynamic>> entities) {
+    return entities.where((entity) {
+      final riskOk = _riskRating == 'All' || '${entity['risk_rating'] ?? ''}' == _riskRating;
+      final jurisdictionOk = _jurisdiction == 'All' || '${entity['jurisdiction'] ?? ''}' == _jurisdiction;
+      final entityOk = _entityMode == 'All entities' || entity['external_id'] == _selectedEntityExternalId;
+      return riskOk && jurisdictionOk && entityOk;
+    }).toList();
   }
 
   String _buildCompletenessQuery() {
@@ -120,6 +91,10 @@ class _CompletenessScreenState extends State<CompletenessScreen> {
   void _setFilter(VoidCallback update) {
     update();
     if (_entityMode == 'All entities') _selectedEntityExternalId = null;
+    if (_entityMode == 'Selected entity' && _selectedEntityExternalId == null) {
+      final first = _lastData?.allEntities.firstOrNull;
+      if (first != null) _selectedEntityExternalId = '${first['external_id']}';
+    }
     setState(() => _future = _load());
   }
 
@@ -182,21 +157,37 @@ class _CompletenessScreenState extends State<CompletenessScreen> {
                   const SizedBox(height: 500, child: Center(child: CircularProgressIndicator()))
                 else ...[
                   _CompletenessCards(data: data),
+                  const SizedBox(height: 8),
+                  Text('Ruleset: ${data.rulesetName} v${data.rulesetVersion}', style: Theme.of(context).textTheme.bodySmall),
                   const SizedBox(height: 16),
                   if (_includeAiSummary) ...[
                     _AiCompletenessSummary(response: data.aiSummary),
                     const SizedBox(height: 16),
                   ],
-                  TrustVaultDataGrid(
-                    title: 'Completeness result set',
-                    subtitle: 'Rule-level completeness rows. Missing rows are highlighted and can be searched, sorted, filtered by visible columns and exported.',
-                    rows: data.rows,
-                    columns: _columns(context),
-                    initialSortColumnKey: 'entity_external_id',
-                    exportFilename: 'trustvault-completeness.csv',
-                    emptyText: 'No completeness rows match the selected filters.',
-                    height: 620,
-                    dense: true,
+                  Stack(
+                    children: [
+                      Opacity(
+                        opacity: loading ? 0.55 : 1,
+                        child: TrustVaultDataGrid(
+                          title: 'Completeness result set',
+                          subtitle: 'Rule-level completeness rows. Missing rows are highlighted and can be searched, sorted, filtered by visible columns and exported.',
+                          rows: data.rows,
+                          columns: _columns(context),
+                          initialSortColumnKey: 'entity_external_id',
+                          exportFilename: 'trustvault-completeness.csv',
+                          emptyText: 'No completeness rows match the selected filters.',
+                          height: 620,
+                          dense: true,
+                        ),
+                      ),
+                      if (loading)
+                        Positioned.fill(
+                          child: ColoredBox(
+                            color: Theme.of(context).colorScheme.surface.withOpacity(0.35),
+                            child: const Center(child: Card(child: Padding(padding: EdgeInsets.all(18), child: Row(mainAxisSize: MainAxisSize.min, children: [SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)), SizedBox(width: 12), Text('Updating completeness grid...')])))),
+                          ),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 32),
                 ],
@@ -353,7 +344,7 @@ class _StatusPill extends StatelessWidget {
 }
 
 class _CompletenessViewModel {
-  const _CompletenessViewModel({required this.allEntities, required this.filteredEntities, required this.rows, required this.evaluatedCount, required this.completeCount, required this.incompleteCount, required this.missingEvidenceItems, required this.aiSummary});
+  const _CompletenessViewModel({required this.allEntities, required this.filteredEntities, required this.rows, required this.evaluatedCount, required this.completeCount, required this.incompleteCount, required this.missingEvidenceItems, required this.aiSummary, required this.rulesetName, required this.rulesetVersion});
 
   final List<Map<String, dynamic>> allEntities;
   final List<Map<String, dynamic>> filteredEntities;
@@ -363,4 +354,6 @@ class _CompletenessViewModel {
   final int incompleteCount;
   final int missingEvidenceItems;
   final Map<String, dynamic>? aiSummary;
+  final String rulesetName;
+  final String rulesetVersion;
 }
