@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../../core/api/trustvault_api_client.dart';
+import '../../shared/trustvault_data_grid.dart';
 
 class RulesetsScreen extends StatefulWidget {
   const RulesetsScreen({super.key});
@@ -24,13 +25,21 @@ class _RulesetsScreenState extends State<RulesetsScreen> {
 
   Future<List<dynamic>> _load() async {
     final rows = await _apiClient.getRulesets();
-    if (rows.isNotEmpty) {
+    final castRows = rows.cast<Map<String, dynamic>>();
+    if (castRows.isNotEmpty) {
       final selectedId = _selectedRuleset?['id'];
-      _selectedRuleset = rows.cast<Map<String, dynamic>>().where((row) => row['id'] == selectedId).firstOrNull ?? rows.first as Map<String, dynamic>;
+      _selectedRuleset = _findById(castRows, selectedId) ?? castRows.first;
     } else {
       _selectedRuleset = null;
     }
     return rows;
+  }
+
+  Map<String, dynamic>? _findById(List<Map<String, dynamic>> rows, Object? id) {
+    for (final row in rows) {
+      if (row['id'] == id) return row;
+    }
+    return null;
   }
 
   void _refresh() => setState(() => _future = _load());
@@ -96,41 +105,61 @@ class _RulesetsScreenState extends State<RulesetsScreen> {
     showDialog<void>(context: context, builder: (context) => AlertDialog(title: Text('${rule['rule_key'] ?? 'Rule detail'}'), content: SizedBox(width: 760, height: 520, child: DecoratedBox(decoration: BoxDecoration(border: Border.all(color: Theme.of(context).colorScheme.outlineVariant), borderRadius: BorderRadius.circular(12)), child: SingleChildScrollView(padding: const EdgeInsets.all(16), child: SelectableText(const JsonEncoder.withIndent('  ').convert(rule), style: Theme.of(context).textTheme.bodySmall?.copyWith(fontFamily: 'monospace'))))), actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close'))]));
   }
 
+  List<TrustVaultDataGridColumn> _rulesetColumns() => [
+        const TrustVaultDataGridColumn(key: 'name', label: 'Ruleset', width: 240),
+        const TrustVaultDataGridColumn(key: 'version', label: 'Version', width: 90),
+        const TrustVaultDataGridColumn(key: 'status', label: 'Status', width: 120),
+        const TrustVaultDataGridColumn(key: 'rule_count', label: 'Rules', width: 90),
+        const TrustVaultDataGridColumn(key: 'description', label: 'Description', width: 360),
+        const TrustVaultDataGridColumn(key: 'id', label: 'ID', width: 300, visibleByDefault: false),
+      ];
+
+  List<TrustVaultDataGridColumn> _ruleColumns(Map<String, dynamic> selected) => [
+        TrustVaultDataGridColumn(key: 'required', label: 'Required', width: 100, cellBuilder: (row) => Icon(row['required'] == true ? Icons.check_circle : Icons.remove_circle_outline)),
+        const TrustVaultDataGridColumn(key: 'rule_key', label: 'Rule key', width: 220),
+        const TrustVaultDataGridColumn(key: 'category', label: 'Category', width: 160),
+        const TrustVaultDataGridColumn(key: 'document_type', label: 'Document type', width: 180),
+        const TrustVaultDataGridColumn(key: 'max_age_days', label: 'Max age', width: 100),
+        TrustVaultDataGridColumn(key: 'applies_when_text', label: 'Applies when', width: 360, valueBuilder: (row) => jsonEncode(row['applies_when_json'] ?? <String, dynamic>{})),
+        const TrustVaultDataGridColumn(key: 'id', label: 'Rule ID', width: 300, visibleByDefault: false),
+        TrustVaultDataGridColumn(key: 'actions', label: 'Actions', width: 160, sortable: false, valueBuilder: (_) => '', cellBuilder: (row) => Wrap(spacing: 4, children: [TextButton(onPressed: () => _showRule(row), child: const Text('View')), TextButton(onPressed: () => _saveRule(selected, rule: row), child: const Text('Edit')), TextButton(onPressed: () => _deleteRule(selected, row), child: const Text('Delete'))])),
+      ];
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Rulesets', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)), const SizedBox(height: 8), const Text('View and maintain evidence completeness rules used to identify missing mandatory evidence.')])),
-          FilledButton.icon(onPressed: () => _saveRuleset(), icon: const Icon(Icons.add), label: const Text('New ruleset')),
-          const SizedBox(width: 12),
-          OutlinedButton.icon(onPressed: _refresh, icon: const Icon(Icons.refresh), label: const Text('Refresh')),
-        ]),
-        const SizedBox(height: 16),
-        Expanded(
-          child: FutureBuilder<List<dynamic>>(
+    return Scrollbar(
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(32),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Rulesets', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)), const SizedBox(height: 8), const Text('View and maintain evidence completeness rules used to identify missing mandatory evidence.')])),
+            FilledButton.icon(onPressed: () => _saveRuleset(), icon: const Icon(Icons.add), label: const Text('New ruleset')),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(onPressed: _refresh, icon: const Icon(Icons.refresh), label: const Text('Refresh')),
+          ]),
+          const SizedBox(height: 16),
+          FutureBuilder<List<dynamic>>(
             future: _future,
             builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-              if (snapshot.hasError) return Center(child: Text('Unable to load rulesets: ${snapshot.error}'));
+              if (snapshot.connectionState != ConnectionState.done) return const SizedBox(height: 520, child: Center(child: CircularProgressIndicator()));
+              if (snapshot.hasError) return SizedBox(height: 520, child: Center(child: Text('Unable to load rulesets: ${snapshot.error}')));
               final rulesets = (snapshot.data ?? <dynamic>[]).cast<Map<String, dynamic>>();
-              if (rulesets.isEmpty) return const Center(child: Text('No rulesets are configured. Create a ruleset to begin.'));
+              if (rulesets.isEmpty) return const SizedBox(height: 420, child: Center(child: Text('No rulesets are configured. Create a ruleset to begin.')));
               final selected = _selectedRuleset ?? rulesets.first;
               final rules = (selected['rules'] as List<dynamic>? ?? <dynamic>[]).cast<Map<String, dynamic>>();
-              return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                SizedBox(width: 460, child: Card(child: SingleChildScrollView(child: DataTable(showCheckboxColumn: false, columns: const [DataColumn(label: Text('Ruleset')), DataColumn(label: Text('Status')), DataColumn(label: Text('Rules'))], rows: rulesets.map((ruleset) => DataRow(selected: ruleset['id'] == selected['id'], onSelectChanged: (_) => setState(() => _selectedRuleset = ruleset), cells: [DataCell(SizedBox(width: 210, child: Text('${ruleset['name'] ?? '-'}', overflow: TextOverflow.ellipsis))), DataCell(Text('${ruleset['status'] ?? '-'}')), DataCell(Text('${ruleset['rule_count'] ?? '-'}'))])).toList())))),
-                const SizedBox(width: 16),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [Chip(label: Text('Name: ${selected['name']}')), Chip(label: Text('Version: ${selected['version']}')), Chip(label: Text('Status: ${selected['status']}')), Chip(label: Text('Required: ${rules.where((rule) => rule['required'] == true).length}')), OutlinedButton.icon(onPressed: () => _saveRuleset(ruleset: selected), icon: const Icon(Icons.edit_outlined), label: const Text('Edit ruleset')), OutlinedButton.icon(onPressed: () => _deleteRuleset(selected), icon: const Icon(Icons.delete_outline), label: const Text('Delete')), FilledButton.icon(onPressed: () => _saveRule(selected), icon: const Icon(Icons.add), label: const Text('Add rule'))]),
-                  const SizedBox(height: 12),
-                  Expanded(child: Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal, child: SingleChildScrollView(child: DataTable(columns: const [DataColumn(label: Text('Required')), DataColumn(label: Text('Rule key')), DataColumn(label: Text('Category')), DataColumn(label: Text('Document type')), DataColumn(label: Text('Max age')), DataColumn(label: Text('Applies when')), DataColumn(label: Text('Actions'))], rows: rules.map((rule) => DataRow(cells: [DataCell(Icon(rule['required'] == true ? Icons.check_circle : Icons.remove_circle_outline)), DataCell(Text('${rule['rule_key'] ?? '-'}')), DataCell(Text('${rule['category'] ?? '-'}')), DataCell(Text('${rule['document_type'] ?? '-'}')), DataCell(Text('${rule['max_age_days'] ?? '-'}')), DataCell(SizedBox(width: 280, child: Text('${rule['applies_when_json'] ?? {}}', overflow: TextOverflow.ellipsis))), DataCell(Row(mainAxisSize: MainAxisSize.min, children: [TextButton(onPressed: () => _showRule(rule), child: const Text('View')), TextButton(onPressed: () => _saveRule(selected, rule: rule), child: const Text('Edit')), TextButton(onPressed: () => _deleteRule(selected, rule), child: const Text('Delete'))]))])).toList()))))),
-                ])),
+              return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                TrustVaultDataGrid(title: 'Rulesets', subtitle: 'Click a ruleset row to view and amend its rules.', rows: rulesets, columns: _rulesetColumns(), initialSortColumnKey: 'name', onRowTap: (row) => setState(() => _selectedRuleset = row), exportFilename: 'trustvault-rulesets.csv', height: 300, dense: true),
+                const SizedBox(height: 16),
+                Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [Chip(label: Text('Name: ${selected['name']}')), Chip(label: Text('Version: ${selected['version']}')), Chip(label: Text('Status: ${selected['status']}')), Chip(label: Text('Required: ${rules.where((rule) => rule['required'] == true).length}')), OutlinedButton.icon(onPressed: () => _saveRuleset(ruleset: selected), icon: const Icon(Icons.edit_outlined), label: const Text('Edit ruleset')), OutlinedButton.icon(onPressed: () => _deleteRuleset(selected), icon: const Icon(Icons.delete_outline), label: const Text('Delete')), FilledButton.icon(onPressed: () => _saveRule(selected), icon: const Icon(Icons.add), label: const Text('Add rule'))]),
+                const SizedBox(height: 12),
+                TrustVaultDataGrid(title: 'Rules', subtitle: 'Rules belonging to the selected ruleset.', rows: rules, columns: _ruleColumns(selected), initialSortColumnKey: 'rule_key', exportFilename: 'trustvault-rules.csv', height: 520, dense: true),
               ]);
             },
           ),
-        ),
-      ]),
+          const SizedBox(height: 32),
+        ]),
+      ),
     );
   }
 }
