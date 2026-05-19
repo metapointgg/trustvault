@@ -14,6 +14,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final TrustVaultApiClient _apiClient = TrustVaultApiClient();
   late Future<Map<String, dynamic>> _settingsFuture;
   late Future<Map<String, dynamic>> _autoIngestionFuture;
+  late Future<Map<String, dynamic>> _documentClassificationFuture;
   Map<String, dynamic> _pendingUpdates = <String, dynamic>{};
   bool _saving = false;
   String? _message;
@@ -28,6 +29,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _reload() {
     _settingsFuture = _apiClient.getSettings();
     _autoIngestionFuture = _apiClient.getAutoIngestionStatus();
+    _documentClassificationFuture = _apiClient.getDocumentClassificationSettings();
   }
 
   Future<void> _refresh() async {
@@ -97,6 +99,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _saveDocumentClassificationConfig(Map<String, dynamic> config) async {
+    setState(() {
+      _saving = true;
+      _message = null;
+      _error = null;
+    });
+    try {
+      final response = await _apiClient.updateDocumentClassificationSettings(config);
+      if (!mounted) return;
+      setState(() {
+        _message = 'Updated ${(response['document_types'] as List<dynamic>? ?? <dynamic>[]).length} document type mapping(s).';
+        _saving = false;
+        _reload();
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = '$error';
+        _saving = false;
+      });
+    }
+  }
+
   void _recordChange(String key, dynamic value) {
     setState(() => _pendingUpdates[key] = value);
   }
@@ -119,7 +144,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Text('Settings', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 8),
-                      const Text('Manage safe runtime configuration. Secrets remain environment/secret-manager controlled and are not editable here.'),
+                      const Text('Manage safe runtime configuration and document classification mappings. Secrets remain environment/secret-manager controlled.'),
                     ],
                   ),
                 ),
@@ -137,6 +162,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             if (_error != null) _Banner(message: _error!, positive: false),
             if (!isAdmin) const _Banner(message: 'Admin role required to update settings. Current values are read-only.', positive: false),
             const SizedBox(height: 16),
+            _DocumentClassificationCard(future: _documentClassificationFuture, editable: isAdmin && !_saving, onSave: _saveDocumentClassificationConfig),
+            const SizedBox(height: 16),
             _AutoIngestionStatusCard(future: _autoIngestionFuture, onScanNow: isAdmin ? _scanNow : null, onQueueScan: isAdmin ? _queueScan : null),
             const SizedBox(height: 16),
             FutureBuilder<Map<String, dynamic>>(
@@ -148,7 +175,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (categories.isEmpty) return const Center(child: Text('No settings returned by API.'));
                 return Column(
                   children: categories.entries.map((entry) {
-                    final items = (entry.value as List<dynamic>? ?? <dynamic>[]).cast<Map<String, dynamic>>();
+                    final items = (entry.value as List<dynamic>? ?? <dynamic>[]).whereType<Map<String, dynamic>>().toList();
                     return _SettingsCategoryCard(category: entry.key, items: items, pendingUpdates: _pendingUpdates, editable: isAdmin, onChanged: _recordChange);
                   }).toList(),
                 );
@@ -158,6 +185,118 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
+  }
+}
+
+class _DocumentClassificationCard extends StatelessWidget {
+  const _DocumentClassificationCard({required this.future, required this.editable, required this.onSave});
+
+  final Future<Map<String, dynamic>> future;
+  final bool editable;
+  final Future<void> Function(Map<String, dynamic> config) onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: FutureBuilder<Map<String, dynamic>>(
+          future: future,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+            if (snapshot.hasError) return Text('Document classification settings unavailable: ${snapshot.error}');
+            final config = (snapshot.data?['config'] as Map<String, dynamic>? ?? <String, dynamic>{});
+            final documentTypes = (snapshot.data?['document_types'] as List<dynamic>? ?? <dynamic>[]).whereType<Map<String, dynamic>>().toList();
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('Document classification', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 6),
+                        const Text('Document Types are mapped to Categories. Filename patterns are used during ingestion before manual categorisation.'),
+                      ]),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: editable ? () => _showAddMappingDialog(context, config, documentTypes) : null,
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add mapping'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: DataTable(
+                    columns: const [
+                      DataColumn(label: Text('Document Type')),
+                      DataColumn(label: Text('Category')),
+                      DataColumn(label: Text('Filename patterns')),
+                    ],
+                    rows: documentTypes.map((item) {
+                      final patterns = (item['filename_patterns'] as List<dynamic>? ?? <dynamic>[]).join(', ');
+                      return DataRow(cells: [
+                        DataCell(Text('${item['document_type'] ?? ''}')),
+                        DataCell(Text('${item['category'] ?? ''}')),
+                        DataCell(SizedBox(width: 520, child: Text(patterns, overflow: TextOverflow.ellipsis))),
+                      ]);
+                    }).toList(),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showAddMappingDialog(BuildContext context, Map<String, dynamic> config, List<Map<String, dynamic>> documentTypes) async {
+    final documentTypeController = TextEditingController();
+    final categoryController = TextEditingController();
+    final patternsController = TextEditingController();
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add document type mapping'),
+        content: SizedBox(
+          width: 520,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: documentTypeController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Document Type')),
+              const SizedBox(height: 12),
+              TextField(controller: categoryController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Category')),
+              const SizedBox(height: 12),
+              TextField(controller: patternsController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Filename patterns, comma separated')),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              if (documentTypeController.text.trim().isEmpty || categoryController.text.trim().isEmpty) return;
+              Navigator.of(context).pop(<String, dynamic>{
+                'document_type': documentTypeController.text.trim(),
+                'category': categoryController.text.trim(),
+                'filename_patterns': patternsController.text.split(',').map((value) => value.trim()).where((value) => value.isNotEmpty).toList(),
+              });
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    documentTypeController.dispose();
+    categoryController.dispose();
+    patternsController.dispose();
+    if (result == null) return;
+    final nextConfig = Map<String, dynamic>.from(config);
+    nextConfig['document_types'] = <Map<String, dynamic>>[...documentTypes, result];
+    await onSave(nextConfig);
   }
 }
 
