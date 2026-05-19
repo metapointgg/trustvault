@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from trustvault.core.document_classification import DocumentClassificationService
 from trustvault.core.hashing import sha256_bytes
 from trustvault.db.models import Entity, EvidenceObject
 from trustvault.settings import get_settings
@@ -22,16 +23,18 @@ class EvidenceIngestionResult:
 
 
 class LocalEvidenceIngestionService:
-    """Initial local ingestion service.
+    """Local/API ingestion service.
 
-    This gives the production shell a real data path before the full FITS container
-    builder from the POC is migrated.
+    Evidence metadata is normalised through the document classification service so
+    direct uploads and source-folder uploads follow the same filename-driven
+    document type -> category model.
     """
 
     def __init__(self, db: Session):
         self.db = db
         settings = get_settings()
         self.storage = LocalFilesystemStorage(settings.local_storage_root)
+        self.classifier = DocumentClassificationService(db)
 
     def ingest_text_evidence(
         self,
@@ -55,16 +58,23 @@ class LocalEvidenceIngestionService:
             data=content,
             content_type="text/plain",
         )
+        classified_metadata = self.classifier.build_metadata(
+            filename=filename,
+            source_path=metadata.get("source_path") if metadata else None,
+            existing_metadata=metadata,
+        )
+        classified_metadata.setdefault("search_text", text)
+        classified_metadata.setdefault("search_text_source", "api_text")
 
         evidence = EvidenceObject(
             id=object_id,
             entity_id=entity.id,
-            object_type=object_type,
+            object_type=classified_metadata.get("document_type") or object_type,
             source_system=source_system,
             storage_uri=stored.uri,
             sha256=digest,
             content_type="text/plain",
-            metadata_json=metadata or {},
+            metadata_json=classified_metadata,
         )
         self.db.add(evidence)
         self.db.commit()
@@ -101,16 +111,21 @@ class LocalEvidenceIngestionService:
             data=content,
             content_type=content_type,
         )
+        classified_metadata = self.classifier.build_metadata(
+            filename=filename,
+            source_path=metadata.get("source_path") if metadata else None,
+            existing_metadata=metadata,
+        )
 
         evidence = EvidenceObject(
             id=object_id,
             entity_id=entity.id,
-            object_type=object_type,
+            object_type=classified_metadata.get("document_type") or object_type,
             source_system=source_system,
             storage_uri=stored.uri,
             sha256=digest,
             content_type=content_type,
-            metadata_json=metadata or {},
+            metadata_json=classified_metadata,
         )
         self.db.add(evidence)
         self.db.commit()
