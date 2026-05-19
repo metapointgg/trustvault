@@ -54,6 +54,27 @@ STOP_WORDS = {
 ONBOARDING_CATEGORIES = {"customer_documents", "identity", "proof_of_address", "source_of_wealth", "cdd_review", "communications"}
 NON_AI_SUMMARY_SOURCES = {"entity_metadata", "archive_status", "payload_metadata", "completeness_rules"}
 DETERMINISTIC_AUTO_CAPABILITIES = {"archive_status", "entity_discovery", "entity_summary", "payload_metadata", "completeness_check"}
+MISSING_INTENT_PHRASES = (
+    "missing",
+    "without",
+    "do not have",
+    "does not have",
+    "don't have",
+    "has no",
+    "have no",
+    "not have",
+    "not present",
+    "not provided",
+    "outstanding",
+    "incomplete",
+)
+EVIDENCE_TYPE_ALIASES: dict[str, tuple[str, ...]] = {
+    "proof_of_address": ("proof of address", "poa", "address evidence", "address verification", "utility bill"),
+    "source_of_wealth": ("source of wealth", "sow", "wealth evidence"),
+    "source_of_funds": ("source of funds", "sof", "funds evidence"),
+    "passport": ("passport", "identity document", "identity evidence", "id evidence"),
+    "screening": ("screening", "pep", "sanctions", "adverse media"),
+}
 
 
 def _settings_values(db: Session) -> dict[str, Any]:
@@ -102,6 +123,49 @@ def _unique(values: list[str]) -> list[str]:
         if value and value not in output:
             output.append(value)
     return output
+
+
+def _missing_evidence_type_from_query(raw_query: str) -> str | None:
+    lower = _text_norm(raw_query)
+    if not any(phrase in lower for phrase in MISSING_INTENT_PHRASES):
+        return None
+    for evidence_type, aliases in EVIDENCE_TYPE_ALIASES.items():
+        if any(alias in lower for alias in aliases):
+            return evidence_type
+    if "mandatory evidence" in lower or "required evidence" in lower:
+        return "mandatory_evidence"
+    return None
+
+
+def _apply_missing_evidence_intent(structured: StructuredQuery) -> StructuredQuery:
+    missing_type = _missing_evidence_type_from_query(structured.raw_query)
+    if not missing_type:
+        return structured
+    if missing_type == "mandatory_evidence":
+        categories = structured.categories or []
+        document_types = structured.document_types or []
+        search_terms = structured.search_terms or ["mandatory evidence"]
+    else:
+        categories, document_types, search_terms = _expand_query_filters(
+            [missing_type],
+            [missing_type],
+            [missing_type.replace("_", " ")],
+        )
+    return StructuredQuery(
+        raw_query=structured.raw_query,
+        scope=structured.scope,
+        capability="completeness_check",
+        entity_external_id=structured.entity_external_id,
+        risk_rating=structured.risk_rating,
+        jurisdiction=structured.jurisdiction,
+        snapshot_id=structured.snapshot_id,
+        document_types=document_types,
+        categories=categories,
+        search_terms=search_terms,
+        completeness_only=True,
+        missing_evidence_type=missing_type,
+        execute_with="fits_index",
+    )
 
 
 def _expand_query_filters(categories: list[str], document_types: list[str], search_terms: list[str]) -> tuple[list[str], list[str], list[str]]:
@@ -190,7 +254,7 @@ def _normalise_ai_payload(ai_payload: dict[str, Any], deterministic: StructuredQ
         execute_with = "direct_fits"
     elif not entity_external_id:
         execute_with = "fits_index"
-    return StructuredQuery(
+    normalised = StructuredQuery(
         raw_query=raw_query,
         scope=scope,
         capability=capability,
@@ -205,12 +269,13 @@ def _normalise_ai_payload(ai_payload: dict[str, Any], deterministic: StructuredQ
         missing_evidence_type=(ai_payload.get("missing_evidence_type") or det.get("missing_evidence_type")) if capability == "completeness_check" else None,
         execute_with=execute_with,
     )
+    return _apply_missing_evidence_intent(normalised)
 
 
 def _interpret(request: InterpretRequest | ExecuteRequest, db: Session) -> tuple[StructuredQuery, dict[str, Any]]:
     deterministic = TrustVaultQueryInterpreter().interpret(request.query, entity_external_id=request.entity_external_id)
     categories, document_types, search_terms = _expand_query_filters(deterministic.categories or [], deterministic.document_types or [], deterministic.search_terms or [])
-    deterministic = _structured_with_filters(deterministic, categories, document_types, search_terms)
+    deterministic = _apply_missing_evidence_intent(_structured_with_filters(deterministic, categories, document_types, search_terms))
     values = _settings_values(db)
     meta: dict[str, Any] = {
         "mode": request.mode,
@@ -516,6 +581,84 @@ def _payload_metadata_result(db: Session, structured: StructuredQuery) -> dict[s
     return {"query": structured.raw_query, "entity_external_id": structured.entity_external_id, "object_id": object_id, "result_count": len(rows), "results": rows, "diagnostics": {"execution_mode": "payload_metadata", "evidence_text_filter_applied": False}}
 
 
+def _missing_rule_matches(row: dict[str, Any], missing_type: str | None) -> bool:
+    if row.get("status") != "missing":
+        return False
+    if not missing_type or missing_type == "mandatory_evidence":
+        return True
+    target = _norm(missing_type)
+    values = [
+        row.get("rule_key"),
+        row.get("category"),
+        row.get("document_type"),
+        row.get("expected_category"),
+        row.get("expected_document_type"),
+    ]
+    normalised = {_norm(value) for value in values if value}
+    return target in normalised or any(target in value or value in target for value in normalised)
+
+
+def _completeness_result_row(entity: dict[str, Any], run: dict[str, Any], missing_rule: dict[str, Any] | None = None) -> dict[str, Any]:
+    missing_rule = missing_rule or {}
+    return {
+        "entity_id": entity.get("id") or run.get("entity_id"),
+        "entity_external_id": entity.get("external_id") or run.get("entity_external_id"),
+        "entity_display_name": entity.get("display_name") or run.get("entity_display_name"),
+        "risk_rating": entity.get("risk_rating") or run.get("risk_rating"),
+        "jurisdiction": entity.get("jurisdiction") or run.get("jurisdiction"),
+        "status": "missing" if missing_rule else ("incomplete" if (run.get("missing_count") or 0) > 0 else "complete"),
+        "summary_type": "missing_evidence" if missing_rule else "completeness_summary",
+        "rule_key": missing_rule.get("rule_key"),
+        "category": missing_rule.get("category"),
+        "document_type": missing_rule.get("document_type"),
+        "missing_evidence_type": missing_rule.get("document_type") or missing_rule.get("category"),
+        "completeness_score": run.get("score"),
+        "required_count": run.get("required_count"),
+        "present_count": run.get("present_count"),
+        "missing_count": run.get("missing_count"),
+        "matched_evidence_object_id": missing_rule.get("matched_evidence_object_id"),
+        "matched_filename": missing_rule.get("matched_filename"),
+        "snippet": f"Missing required evidence: {missing_rule.get('document_type') or missing_rule.get('category') or missing_rule.get('rule_key') or 'mandatory evidence'}" if missing_rule else f"Completeness score {run.get('score')}%, missing {run.get('missing_count')} item(s).",
+    }
+
+
+def _completeness_check_result(service: TrustVaultFeatureService, structured: StructuredQuery, limit: int) -> dict[str, Any]:
+    entities = service.customers(risk_rating=structured.risk_rating, jurisdiction=structured.jurisdiction)
+    if structured.entity_external_id:
+        entities = [entity for entity in entities if entity["external_id"] == structured.entity_external_id]
+        if not entities:
+            entities = service.customers(limit=500)
+            entities = [entity for entity in entities if entity["external_id"] == structured.entity_external_id]
+    rows: list[dict[str, Any]] = []
+    diagnostics = {
+        "execution_mode": "completeness_check",
+        "requested_entity_external_id": structured.entity_external_id,
+        "requested_risk_rating": structured.risk_rating,
+        "requested_jurisdiction": structured.jurisdiction,
+        "missing_evidence_type": structured.missing_evidence_type,
+        "matching_entity_count": len(entities),
+        "matching_entity_external_ids": [entity["external_id"] for entity in entities],
+    }
+    for entity in entities:
+        run = service.evaluate_completeness(entity["external_id"])
+        missing_rows = [row for row in run.get("results", []) if _missing_rule_matches(row, structured.missing_evidence_type)]
+        if structured.missing_evidence_type:
+            rows.extend(_completeness_result_row(entity, run, missing_rule) for missing_rule in missing_rows)
+            continue
+        if structured.completeness_only or "incomplete" in structured.raw_query.lower() or "missing" in structured.raw_query.lower():
+            if (run.get("missing_count") or 0) > 0:
+                if missing_rows:
+                    rows.extend(_completeness_result_row(entity, run, missing_rule) for missing_rule in missing_rows)
+                else:
+                    rows.append(_completeness_result_row(entity, run))
+            continue
+        rows.append(_completeness_result_row(entity, run))
+    limited = rows[:limit]
+    diagnostics["matched_missing_entity_count"] = len({row.get("entity_external_id") for row in rows if row.get("entity_external_id")})
+    diagnostics["matched_before_limit"] = len(rows)
+    return {"query": structured.raw_query, "entity_id": None, "entity_external_id": structured.entity_external_id, "container_version_id": None, "result_count": len(limited), "results": limited, "filtered_entity_count": diagnostics["matched_missing_entity_count"], "diagnostics": diagnostics}
+
+
 def _row_matches_cohort(entity: Entity, row: dict[str, Any], structured: StructuredQuery, allowed_external_ids: set[str]) -> tuple[bool, str]:
     if structured.entity_external_id and entity.external_id != structured.entity_external_id:
         return False, "entity_external_id_not_matched"
@@ -706,19 +849,7 @@ def execute_query(request: ExecuteRequest, db: Session = Depends(get_database), 
     if structured.capability == "entity_discovery":
         return _audit_and_return(request=request, structured=structured, meta=meta, result=_entity_discovery_result(service, structured, request.limit), execution_source="entity_metadata", audit_logger=audit_logger, db=db, current_user=current_user)
     if structured.capability == "completeness_check":
-        if structured.entity_external_id:
-            result = service.evaluate_completeness(structured.entity_external_id)
-        else:
-            entities = service.customers(risk_rating=structured.risk_rating, jurisdiction=structured.jurisdiction)
-            runs = []
-            for entity in entities:
-                run = service.evaluate_completeness(entity["external_id"])
-                if structured.missing_evidence_type or "incomplete" in request.query.lower():
-                    if run["missing_count"] <= 0:
-                        continue
-                runs.append(run)
-            result = {"result_count": len(runs), "results": runs, "diagnostics": {"matching_entity_count": len(entities), "execution_mode": "completeness_check"}}
-        return _audit_and_return(request=request, structured=structured, meta=meta, result=result, execution_source="completeness_rules", audit_logger=audit_logger, db=db, current_user=current_user)
+        return _audit_and_return(request=request, structured=structured, meta=meta, result=_completeness_check_result(service, structured, request.limit), execution_source="completeness_rules", audit_logger=audit_logger, db=db, current_user=current_user)
     if structured.entity_external_id:
         try:
             result = reader.direct_search(structured.entity_external_id, search_query, request.limit)
