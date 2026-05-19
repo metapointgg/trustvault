@@ -69,6 +69,7 @@ class SourceFolderIngestionResponse(BaseModel):
     skipped_count: int
     duplicate_count: int = 0
     evidence_object_ids: list[str]
+    assurance_gaps: list[dict[str, Any]] = Field(default_factory=list)
     container: dict[str, Any] | None = None
     index: dict[str, Any] | None = None
     message: str | None = None
@@ -209,6 +210,7 @@ def ingest_source_folder_base64(
             "evidence_object_count": result.evidence_object_count,
             "duplicate_count": result.duplicate_count,
             "source_system_count": result.source_system_count,
+            "assurance_gaps": result.assurance_gaps,
             "container_rebuilt": container is not None,
             "index_rebuilt": index is not None,
         },
@@ -246,6 +248,7 @@ async def ingest_source_folder_upload(
             "evidence_object_count": result.evidence_object_count,
             "duplicate_count": result.duplicate_count,
             "source_system_count": result.source_system_count,
+            "assurance_gaps": result.assurance_gaps,
             "container_rebuilt": container is not None,
             "index_rebuilt": index is not None,
         },
