@@ -13,6 +13,8 @@ services:
     volumes:
       - ./local-data:/app/local-data
       - ./backend/config:/app/config:ro
+      - ./backend/alembic.ini:/app/alembic.ini:ro
+      - ./backend/migrations:/app/migrations
 
   worker:
     build:
@@ -26,6 +28,8 @@ services:
     volumes:
       - ./local-data:/app/local-data
       - ./backend/config:/app/config:ro
+      - ./backend/alembic.ini:/app/alembic.ini:ro
+      - ./backend/migrations:/app/migrations
 
   postgres:
     image: postgres:16

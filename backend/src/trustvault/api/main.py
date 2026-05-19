@@ -2,22 +2,39 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from trustvault.api.routes import (
+    api_status,
     audit,
+    auth,
+    auto_ingestion,
+    comparison,
+    completeness,
     containers,
+    customers,
     dashboard,
     entities,
     evidence,
-    exports,
+    export,
+    extraction,
     fits,
     health,
     ingestion,
+    integrity,
     jobs,
     licence,
+    query,
+    retention,
+    rulesets,
+    settings as settings_routes,
 )
+from trustvault.api import query_summary_patch
+from trustvault.auth.local_auth import LocalAuthService
 from trustvault.db.bootstrap import initialise_database
+from trustvault.db.session import SessionLocal
 from trustvault.settings import get_settings
 
 settings = get_settings()
+
+query_summary_patch.apply(query)
 
 app = FastAPI(
     title=settings.app_name,
@@ -37,16 +54,30 @@ app.add_middleware(
 @app.on_event("startup")
 def startup() -> None:
     initialise_database()
+    with SessionLocal() as db:
+        LocalAuthService(db).bootstrap_initial_admin()
 
 
 app.include_router(health.router)
+app.include_router(auth.router)
 app.include_router(dashboard.router)
+app.include_router(api_status.router)
+app.include_router(settings_routes.router)
+app.include_router(auto_ingestion.router)
+app.include_router(query.router)
+app.include_router(customers.router)
+app.include_router(comparison.router)
+app.include_router(rulesets.router)
+app.include_router(completeness.router)
+app.include_router(extraction.router)
+app.include_router(retention.router)
+app.include_router(integrity.router)
+app.include_router(export.router)
 app.include_router(entities.router)
 app.include_router(evidence.router)
 app.include_router(fits.router)
 app.include_router(ingestion.router)
 app.include_router(containers.router)
-app.include_router(exports.router)
 app.include_router(jobs.router)
 app.include_router(audit.router)
 app.include_router(licence.router)

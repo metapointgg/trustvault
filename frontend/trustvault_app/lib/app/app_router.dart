@@ -1,12 +1,23 @@
 import 'package:go_router/go_router.dart';
 
 import '../features/audit/audit_screen.dart';
+import '../features/comparison/comparison_screen.dart';
+import '../features/completeness/completeness_screen.dart';
 import '../features/dashboard/dashboard_screen.dart';
 import '../features/entities/entities_screen.dart';
+import '../features/export/fits_export_screen.dart';
+import '../features/extraction/extraction_screen.dart';
+import '../features/feature_status/feature_status_screen.dart';
 import '../features/fits/fits_operations_screen.dart';
+import '../features/ingestion/source_folder_upload_screen.dart';
+import '../features/integrity/integrity_screen.dart';
 import '../features/jobs/jobs_screen.dart';
 import '../features/licence/licence_screen.dart';
+import '../features/retention/retention_screen.dart';
+import '../features/rulesets/rulesets_screen.dart';
 import '../features/search/search_screen.dart';
+import '../features/settings/settings_screen.dart';
+import '../features/users/user_admin_screen.dart';
 import '../shared/app_shell.dart';
 
 final appRouter = GoRouter(
@@ -15,34 +26,33 @@ final appRouter = GoRouter(
     ShellRoute(
       builder: (context, state, child) => AppShell(child: child),
       routes: [
+        GoRoute(path: '/', builder: (context, state) => const DashboardScreen()),
         GoRoute(
-          path: '/',
-          builder: (context, state) => const DashboardScreen(),
+          path: '/health',
+          builder: (context, state) => FeatureStatusScreen(
+            title: 'Health',
+            description: 'Operational status for API, database, storage, queue, worker, AI and OCR providers.',
+            loader: (api) => api.getApiHealth(),
+          ),
         ),
-        GoRoute(
-          path: '/entities',
-          builder: (context, state) => const EntitiesScreen(),
-        ),
-        GoRoute(
-          path: '/search',
-          builder: (context, state) => const SearchScreen(),
-        ),
-        GoRoute(
-          path: '/fits',
-          builder: (context, state) => const FitsOperationsScreen(),
-        ),
-        GoRoute(
-          path: '/jobs',
-          builder: (context, state) => const JobsScreen(),
-        ),
-        GoRoute(
-          path: '/audit',
-          builder: (context, state) => const AuditScreen(),
-        ),
-        GoRoute(
-          path: '/licence',
-          builder: (context, state) => const LicenceScreen(),
-        ),
+        GoRoute(path: '/comparison', builder: (context, state) => const ComparisonScreen()),
+        GoRoute(path: '/customers', builder: (context, state) => const EntitiesScreen()),
+        GoRoute(path: '/entities', builder: (context, state) => const EntitiesScreen()),
+        GoRoute(path: '/search', builder: (context, state) => const SearchScreen()),
+        GoRoute(path: '/api', redirect: (context, state) => '/search'),
+        GoRoute(path: '/completeness', builder: (context, state) => const CompletenessScreen()),
+        GoRoute(path: '/rulesets', builder: (context, state) => const RulesetsScreen()),
+        GoRoute(path: '/ingestion', builder: (context, state) => const SourceFolderUploadScreen()),
+        GoRoute(path: '/extraction', builder: (context, state) => const ExtractionScreen()),
+        GoRoute(path: '/retention', builder: (context, state) => const RetentionScreen()),
+        GoRoute(path: '/integrity', builder: (context, state) => const IntegrityScreen()),
+        GoRoute(path: '/export', builder: (context, state) => const FitsExportScreen()),
+        GoRoute(path: '/fits', builder: (context, state) => const FitsOperationsScreen()),
+        GoRoute(path: '/jobs', builder: (context, state) => const JobsScreen()),
+        GoRoute(path: '/users', builder: (context, state) => const UserAdminScreen()),
+        GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
+        GoRoute(path: '/audit', builder: (context, state) => const AuditScreen()),
+        GoRoute(path: '/licence', builder: (context, state) => const LicenceScreen()),
       ],
     ),
   ],

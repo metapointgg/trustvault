@@ -22,10 +22,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<_DashboardData> _load() async {
-    final health = await _apiClient.getHealth();
+    final health = await _apiClient.getApiHealth();
     final summary = await _apiClient.getDashboardSummary();
     final licence = await _apiClient.getLicenceStatus();
-    return _DashboardData(health: health, summary: summary, licence: licence);
+    final archive = await _apiClient.getArchiveStatus();
+    return _DashboardData(health: health, summary: summary, licence: licence, archive: archive);
   }
 
   @override
@@ -50,6 +51,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           final summary = data.summary;
           final health = data.health;
           final licence = data.licence;
+          final archive = data.archive;
+          final components = health['components'] as Map<String, dynamic>? ?? <String, dynamic>{};
+          final database = components['database'] is Map<String, dynamic> ? components['database'] as Map<String, dynamic> : <String, dynamic>{};
+          final storage = components['storage'] is Map<String, dynamic> ? components['storage'] as Map<String, dynamic> : <String, dynamic>{};
 
           return ListView(
             children: [
@@ -61,10 +66,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       children: [
                         Text('TrustVault', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
                         const SizedBox(height: 8),
-                        Text(
-                          'Secure evidence assurance for regulated customer records',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
+                        Text('Secure evidence assurance for regulated customer records', style: Theme.of(context).textTheme.titleMedium),
                       ],
                     ),
                   ),
@@ -76,88 +78,91 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ],
               ),
               const SizedBox(height: 32),
-              Wrap(
-                spacing: 16,
-                runSpacing: 16,
-                children: [
-                  SizedBox(
-                    width: 260,
-                    child: SummaryCard(
-                      title: 'API status',
-                      value: '${health['status'] ?? 'unknown'}',
-                      icon: Icons.api,
-                    ),
-                  ),
-                  SizedBox(
-                    width: 260,
-                    child: SummaryCard(
-                      title: 'Database',
-                      value: '${health['database'] ?? 'unknown'}',
-                      icon: Icons.storage,
-                    ),
-                  ),
-                  SizedBox(
-                    width: 260,
-                    child: SummaryCard(
-                      title: 'Licence',
-                      value: '${licence['state'] ?? 'unknown'}',
-                      icon: Icons.key,
-                    ),
-                  ),
-                  SizedBox(
-                    width: 260,
-                    child: SummaryCard(
-                      title: 'Entities',
-                      value: '${summary['entity_count'] ?? 0}',
-                      icon: Icons.business,
-                    ),
-                  ),
-                  SizedBox(
-                    width: 260,
-                    child: SummaryCard(
-                      title: 'Evidence objects',
-                      value: '${summary['evidence_object_count'] ?? 0}',
-                      icon: Icons.folder_copy,
-                    ),
-                  ),
-                  SizedBox(
-                    width: 260,
-                    child: SummaryCard(
-                      title: 'Queued jobs',
-                      value: '${summary['queued_jobs'] ?? 0}',
-                      icon: Icons.pending_actions,
-                    ),
-                  ),
-                ],
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final cardWidth = constraints.maxWidth > 1200 ? 260.0 : constraints.maxWidth > 760 ? (constraints.maxWidth - 16) / 2 : constraints.maxWidth;
+                  return Wrap(
+                    spacing: 16,
+                    runSpacing: 16,
+                    children: [
+                      SizedBox(width: cardWidth, child: SummaryCard(title: 'API status', value: _statusLabel(health['status']), icon: Icons.api)),
+                      SizedBox(width: cardWidth, child: SummaryCard(title: 'Database', value: _statusLabel(database['status']), icon: Icons.storage)),
+                      SizedBox(width: cardWidth, child: SummaryCard(title: 'Storage', value: _statusLabel(storage['status']), icon: Icons.folder_outlined)),
+                      SizedBox(width: cardWidth, child: SummaryCard(title: 'Licence', value: _licenceSummary(licence), icon: Icons.key)),
+                      SizedBox(width: cardWidth, child: SummaryCard(title: 'Entities', value: '${summary['entity_count'] ?? archive['entity_count'] ?? 0}', icon: Icons.business)),
+                      SizedBox(width: cardWidth, child: SummaryCard(title: 'Evidence objects', value: '${summary['evidence_object_count'] ?? archive['evidence_object_count'] ?? 0}', icon: Icons.folder_copy)),
+                      SizedBox(width: cardWidth, child: SummaryCard(title: 'Current FITS archives', value: '${summary['current_fits_container_count'] ?? archive['current_fits_container_count'] ?? 0}', icon: Icons.data_object_outlined)),
+                      SizedBox(width: cardWidth, child: SummaryCard(title: 'Open jobs', value: '${(summary['queued_jobs'] ?? 0) + (summary['running_jobs'] ?? 0)}', icon: Icons.pending_actions)),
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 32),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Production build status', style: Theme.of(context).textTheme.titleLarge),
-                      const SizedBox(height: 12),
-                      const Text('This first TrustVault build establishes the production-shaped shell: FastAPI, worker, PostgreSQL, audit, licence status, local storage abstraction and Flutter Web UI.'),
-                    ],
-                  ),
-                ),
-              ),
+              _ConfigurationPanel(archive: archive, licence: licence),
             ],
           );
         },
       ),
     );
   }
+
+  String _statusLabel(dynamic value) {
+    final text = '${value ?? 'unknown'}';
+    if (text.isEmpty || text == 'null') return 'Unknown';
+    return text.substring(0, 1).toUpperCase() + text.substring(1).replaceAll('_', ' ');
+  }
+
+  String _licenceSummary(Map<String, dynamic> licence) {
+    final state = _statusLabel(licence['state']);
+    final expiry = licence['valid_until'];
+    if (expiry == null || '$expiry'.isEmpty || '$expiry' == 'null') return state;
+    return '$state · expires $expiry';
+  }
+}
+
+class _ConfigurationPanel extends StatelessWidget {
+  const _ConfigurationPanel({required this.archive, required this.licence});
+
+  final Map<String, dynamic> archive;
+  final Map<String, dynamic> licence;
+
+  @override
+  Widget build(BuildContext context) {
+    final config = archive['configuration'] as Map<String, dynamic>? ?? <String, dynamic>{};
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Archive configuration', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                Chip(label: Text('Source: ${config['source_folder'] ?? '-'}')),
+                Chip(label: Text('Containers: ${config['containers_folder'] ?? '-'}')),
+                Chip(label: Text('Index: ${config['index_path'] ?? '-'}')),
+                Chip(label: Text('Exports: ${config['exports_folder'] ?? '-'}')),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text('Licence: ${licence['customer_name'] ?? 'Unknown customer'} · ${licence['edition'] ?? '-'} · ${licence['message'] ?? '-'}'),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _DashboardData {
-  const _DashboardData({required this.health, required this.summary, required this.licence});
+  const _DashboardData({required this.health, required this.summary, required this.licence, required this.archive});
 
   final Map<String, dynamic> health;
   final Map<String, dynamic> summary;
   final Map<String, dynamic> licence;
+  final Map<String, dynamic> archive;
 }
 
 class _ErrorState extends StatelessWidget {
