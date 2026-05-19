@@ -39,20 +39,20 @@ SCENARIOS: list[dict[str, Any]] = [
     {"group": "Archive/status checks", "examples": ["Use TrustVault to show me the archive status.", "Use TrustVault to tell me how many entities, containers and indexed evidence objects are available.", "Use TrustVault to show the configured source folder, containers folder, index path and exports folder."]},
     {"group": "Entity discovery", "examples": ["Use TrustVault to list the first 10 entities.", "Use TrustVault to list high risk entities.", "Use TrustVault to list high risk entities in Guernsey.", "Use TrustVault to list medium risk entities in Jersey.", "Use TrustVault to list low risk entities in the United Kingdom."]},
     {"group": "Entity summary", "examples": ["Use TrustVault to summarise entity CUST-000001.", "Use TrustVault to show the FITS containers available for CUST-000001.", "Use TrustVault to show the evidence counts by category and document type for CUST-000001.", "Use TrustVault to show the retention and legal hold summary for CUST-000001."]},
-    {"group": "Direct FITS search for selected customer", "examples": ["Use TrustVault to search the FITS container for CUST-000001 for source of wealth evidence.", "Use TrustVault to search CUST-000001 directly for onboarding documentation.", "Use TrustVault to search CUST-000001 for proof of address evidence.", "Use TrustVault to search CUST-000001 for passport or identity evidence.", "Use TrustVault to search CUST-000001 for screening evidence.", "Use TrustVault to search CUST-000001 for correspondence about due diligence."]},
-    {"group": "Cross-archive search", "examples": ["Use TrustVault to search the archive for source of funds evidence.", "Use TrustVault to search the archive for onboarding documentation for high risk clients in Guernsey.", "Use TrustVault to find CDD review evidence for high risk customers.", "Use TrustVault to find all screening evidence for Guernsey customers.", "Use TrustVault to search for customer correspondence mentioning missing documents.", "Use TrustVault to find evidence that would help respond to a regulator asking about source of wealth."]},
-    {"group": "Query interpretation tests", "examples": ["Use TrustVault to interpret this query but do not execute it: Show me all onboarding documentation for high risk clients in Guernsey.", "Use TrustVault to interpret this query: Which high risk clients in Guernsey are missing proof of address?", "Use TrustVault to interpret this query: Show me source of wealth and screening evidence for high risk customers.", "Use TrustVault to interpret this query: Is the onboarding file complete for CUST-000001?"]},
-    {"group": "Execute natural-language queries", "examples": ["Use TrustVault to execute this query: Show me all onboarding documentation for high risk clients in Guernsey.", "Use TrustVault to execute this query: Which customers are missing proof of address?", "Use TrustVault to execute this query for CUST-000001: Show me source of wealth evidence.", "Use TrustVault to execute this query for CUST-000001: What evidence explains where the customer money came from?", "Use TrustVault to execute this query: Find high risk customers with source of funds evidence."]},
-    {"group": "Completeness checks", "examples": ["Use TrustVault to check evidence completeness for CUST-000001.", "Use TrustVault to check completeness for high risk customers in Guernsey.", "Use TrustVault to show only incomplete high risk customer files.", "Use TrustVault to identify customers missing mandatory evidence.", "Use TrustVault to check whether the onboarding evidence is complete for CUST-000001."]},
+    {"group": "Direct FITS search for selected entity", "examples": ["Use TrustVault to search the FITS container for CUST-000001 for source of wealth evidence.", "Use TrustVault to search CUST-000001 directly for onboarding documentation.", "Use TrustVault to search CUST-000001 for proof of address evidence.", "Use TrustVault to search CUST-000001 for passport or identity evidence.", "Use TrustVault to search CUST-000001 for screening evidence.", "Use TrustVault to search CUST-000001 for correspondence about due diligence."]},
+    {"group": "Cross-archive search", "examples": ["Use TrustVault to search the archive for source of funds evidence.", "Use TrustVault to search the archive for onboarding documentation for high risk entities in Guernsey.", "Use TrustVault to find CDD review evidence for high risk entities.", "Use TrustVault to find all screening evidence for Guernsey entities.", "Use TrustVault to search for entity correspondence mentioning missing documents.", "Use TrustVault to find evidence that would help respond to a regulator asking about source of wealth."]},
+    {"group": "Query interpretation tests", "examples": ["Use TrustVault to interpret this query but do not execute it: Show me all onboarding documentation for high risk entities in Guernsey.", "Use TrustVault to interpret this query: Which high risk entities in Guernsey are missing proof of address?", "Use TrustVault to interpret this query: Show me source of wealth and screening evidence for high risk entities.", "Use TrustVault to interpret this query: Is the onboarding file complete for CUST-000001?"]},
+    {"group": "Execute natural-language queries", "examples": ["Use TrustVault to execute this query: Show me all onboarding documentation for high risk entities in Guernsey.", "Use TrustVault to execute this query: Which entities are missing proof of address?", "Use TrustVault to execute this query for CUST-000001: Show me source of wealth evidence.", "Use TrustVault to execute this query for CUST-000001: What evidence explains where the entity money came from?", "Use TrustVault to execute this query: Find high risk entities with source of funds evidence."]},
+    {"group": "Completeness checks", "examples": ["Use TrustVault to check evidence completeness for CUST-000001.", "Use TrustVault to check completeness for high risk entities in Guernsey.", "Use TrustVault to show only incomplete high risk entity files.", "Use TrustVault to identify entities missing mandatory evidence.", "Use TrustVault to check whether the onboarding evidence is complete for CUST-000001."]},
     {"group": "Payload metadata checks", "examples": ["Use TrustVault to show metadata for object OBJ-000001 for entity CUST-000001.", "Use TrustVault to show the filename, document type, category, source system, SHA-256 and safe preview for object OBJ-000001 for CUST-000001.", "Use TrustVault to show the retention metadata and legal hold status for object OBJ-000001 for CUST-000001."]},
 ]
 
 STOP_WORDS = {
     "show", "me", "all", "the", "for", "of", "and", "or", "in", "to", "a", "an", "use", "trustvault",
-    "evidence", "documentation", "documents", "document", "client", "clients", "customer", "customers", "who", "are", "is", "with",
+    "evidence", "documentation", "documents", "document", "client", "clients", "customer", "customers", "entity", "entities", "who", "are", "is", "with",
 }
 ONBOARDING_CATEGORIES = {"customer_documents", "identity", "proof_of_address", "source_of_wealth", "cdd_review", "communications"}
-NON_AI_SUMMARY_SOURCES = {"entity_metadata", "archive_status", "entity_summary", "payload_metadata", "completeness_rules"}
+NON_AI_SUMMARY_SOURCES = {"entity_metadata", "archive_status", "payload_metadata", "completeness_rules"}
 DETERMINISTIC_AUTO_CAPABILITIES = {"archive_status", "entity_discovery", "entity_summary", "payload_metadata", "completeness_check"}
 
 
@@ -79,21 +79,12 @@ def _auto_should_skip_ai_interpretation(structured: StructuredQuery) -> bool:
         return True
     if structured.capability != "evidence_search":
         return False
-
     raw_query = _text_norm(structured.raw_query)
     terms = [_text_norm(term) for term in (structured.search_terms or []) if term]
     terms_are_only_raw_query = len(terms) == 1 and terms[0] == raw_query
-
     has_entity_scope = bool(structured.entity_external_id)
-    has_structured_filters = bool(
-        structured.risk_rating
-        or structured.jurisdiction
-        or structured.snapshot_id
-        or structured.document_types
-        or structured.categories
-    )
+    has_structured_filters = bool(structured.risk_rating or structured.jurisdiction or structured.snapshot_id or structured.document_types or structured.categories)
     has_normalised_terms = bool(terms) and not terms_are_only_raw_query
-
     return has_entity_scope or has_structured_filters or has_normalised_terms
 
 
@@ -118,7 +109,6 @@ def _expand_query_filters(categories: list[str], document_types: list[str], sear
     docs = list(document_types or [])
     terms = list(search_terms or [])
     joined = " ".join(cats + docs + terms).lower()
-
     if "source_of_funds" in joined or "source of funds" in joined:
         cats.extend(["source_of_funds", "source_of_wealth"])
         docs.extend(["source_of_funds", "source_of_wealth"])
@@ -179,7 +169,6 @@ def _normalise_ai_payload(ai_payload: dict[str, Any], deterministic: StructuredQ
     search_terms = ai_payload.get("search_terms") if isinstance(ai_payload.get("search_terms"), list) else det.get("search_terms")
     ai_capability = ai_payload.get("capability")
     capability = ai_capability if ai_capability in {"evidence_search", "completeness_check", "entity_discovery", "archive_status", "entity_summary", "payload_metadata"} else det.get("capability")
-
     if det.get("capability") in {"archive_status", "entity_summary", "payload_metadata", "completeness_check"}:
         capability = det.get("capability")
     if det.get("capability") == "entity_discovery" and not snapshot_id and not document_types and not categories:
@@ -187,16 +176,13 @@ def _normalise_ai_payload(ai_payload: dict[str, Any], deterministic: StructuredQ
         search_terms = []
     if det.get("capability") == "evidence_search" and ("correspondence" in lower or "email" in lower):
         capability = "evidence_search"
-
     if "onboarding" in lower or snapshot_id == "ONBOARDING":
         snapshot_id = "ONBOARDING"
         document_types = [item for item in (document_types or []) if str(item).upper() != "ONBOARDING"]
         categories = categories or ["customer_documents"]
         if not search_terms:
             search_terms = ["onboarding documentation"]
-
     categories, document_types, search_terms = _expand_query_filters(categories or [], document_types or [], search_terms or [])
-
     execute_with = ai_payload.get("execute_with") if ai_payload.get("execute_with") in {"direct_fits", "fits_index"} else det.get("execute_with")
     if capability in {"entity_discovery", "archive_status", "entity_summary", "payload_metadata"}:
         execute_with = "fits_index"
@@ -204,7 +190,6 @@ def _normalise_ai_payload(ai_payload: dict[str, Any], deterministic: StructuredQ
         execute_with = "direct_fits"
     elif not entity_external_id:
         execute_with = "fits_index"
-
     return StructuredQuery(
         raw_query=raw_query,
         scope=scope,
@@ -242,12 +227,10 @@ def _interpret(request: InterpretRequest | ExecuteRequest, db: Session) -> tuple
         if request.mode == "ai":
             meta["ai_warnings"].append("AI mode requested but effective ai_provider is not lm_studio; deterministic interpretation used")
         return deterministic, meta
-
     if request.mode == "auto" and _auto_should_skip_ai_interpretation(deterministic):
         meta["ai_skipped"] = True
         meta["ai_skip_reason"] = f"auto mode used deterministic {deterministic.capability} interpretation"
         return deterministic, meta
-
     ai = LmStudioAiProvider(str(values.get("lm_studio_base_url") or "http://localhost:1234"), model=_lm_studio_model(values, purpose="query"))
     ai_result = ai.interpret_query(request.query, deterministic.to_dict(), context={"entity_external_id": request.entity_external_id})
     meta.update({"ai_used": not ai_result.warnings, "ai_provider": ai_result.provider, "ai_model": ai_result.model, "ai_warnings": ai_result.warnings, "ai_raw": ai_result.data})
@@ -261,9 +244,9 @@ def _deterministic_rows_summary(rows: list[dict[str, Any]], *, title: str = "Ret
     counts_by_category = Counter(str(row.get("category") or "Unknown") for row in rows if row.get("category"))
     counts_by_document_type = Counter(str(row.get("document_type") or row.get("object_type") or "Unknown") for row in rows if row.get("document_type") or row.get("object_type"))
     examples = [str(row.get("filename")) for row in rows if row.get("filename")][:5]
-    lines = [f"{title}: {len(rows)} row{'s' if len(rows) != 1 else ''} returned across {len(counts_by_entity)} customer{'s' if len(counts_by_entity) != 1 else ''}."]
+    lines = [f"{title}: {len(rows)} row{'s' if len(rows) != 1 else ''} returned across {len(counts_by_entity)} entit{'y' if len(counts_by_entity) == 1 else 'ies'}."]
     if counts_by_entity:
-        lines.append("Customers: " + ", ".join(f"{key} ({value})" for key, value in counts_by_entity.most_common(8)))
+        lines.append("Entities: " + ", ".join(f"{key} ({value})" for key, value in counts_by_entity.most_common(8)))
     if counts_by_category:
         lines.append("Categories: " + ", ".join(f"{key} ({value})" for key, value in counts_by_category.most_common(8)))
     if counts_by_document_type:
@@ -277,6 +260,8 @@ def _deterministic_rows_summary(rows: list[dict[str, Any]], *, title: str = "Ret
 def _summary_should_use_ai(request: ExecuteRequest, execution_source: str) -> bool:
     if not request.include_ai_summary:
         return False
+    if execution_source == "entity_summary":
+        return True
     if request.mode == "ai" and execution_source not in NON_AI_SUMMARY_SOURCES:
         return True
     if request.mode == "auto" and execution_source in {"fits_index", "direct_fits_container"}:
@@ -287,6 +272,8 @@ def _summary_should_use_ai(request: ExecuteRequest, execution_source: str) -> bo
 def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]], db: Session, execution_source: str, audit_logger: AuditLogger) -> dict[str, Any] | None:
     if not request.include_ai_summary:
         return None
+    if execution_source == "entity_summary":
+        return _summarise_entity_profile_if_requested(request, rows, db, audit_logger)
     if not rows:
         return {"available": False, "warning": "No rows were returned to summarise."}
     values = _settings_values(db)
@@ -295,49 +282,120 @@ def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]],
         ai = LmStudioAiProvider(str(values.get("lm_studio_base_url") or "http://localhost:1234"), model=summary_model)
         evidence_payload = [_safe_summary_row(row) for row in rows[:12]]
         ai_result = ai.summarise_evidence(evidence_payload, question=request.query)
-        audit_logger.log(
-            AI_SUMMARY_GENERATED,
-            raw_query=request.query,
-            result_count=len(rows),
-            search_source=execution_source,
-            ai_used=not ai_result.warnings,
-            ai_provider=ai_result.provider,
-            ai_model=ai_result.model,
-            metadata={"operation": "search_result_summary", "warnings": ai_result.warnings},
-        )
+        audit_logger.log(AI_SUMMARY_GENERATED, raw_query=request.query, result_count=len(rows), search_source=execution_source, ai_used=not ai_result.warnings, ai_provider=ai_result.provider, ai_model=ai_result.model, metadata={"operation": "search_result_summary", "warnings": ai_result.warnings})
         if not ai_result.warnings and ai_result.text:
-            return {
-                "available": True,
-                "summary": ai_result.text,
-                "provider": ai_result.provider,
-                "model": ai_result.model,
-                "warnings": [],
-                "evidence_row_count": min(len(rows), 12),
-                "source_of_truth_notice": "The preserved FITS evidence and payload hashes remain the source of truth.",
-                "ai_used_for_summary": True,
-            }
-
+            return {"available": True, "summary": ai_result.text, "provider": ai_result.provider, "model": ai_result.model, "warnings": [], "evidence_row_count": min(len(rows), 12), "source_of_truth_notice": "The preserved FITS evidence and payload hashes remain the source of truth.", "ai_used_for_summary": True}
     summary = _deterministic_entity_summary(rows) if execution_source == "entity_metadata" else _deterministic_rows_summary(rows, title=execution_source)
-    audit_logger.log(
-        AI_SUMMARY_GENERATED,
-        raw_query=request.query,
-        result_count=len(rows),
-        search_source=execution_source,
-        ai_used=False,
-        ai_provider="trustvault",
-        ai_model=f"deterministic_{execution_source}_summary",
-        metadata={"operation": f"deterministic_{execution_source}_summary", "row_count": len(rows), "request_mode": request.mode},
-    )
+    audit_logger.log(AI_SUMMARY_GENERATED, raw_query=request.query, result_count=len(rows), search_source=execution_source, ai_used=False, ai_provider="trustvault", ai_model=f"deterministic_{execution_source}_summary", metadata={"operation": f"deterministic_{execution_source}_summary", "row_count": len(rows), "request_mode": request.mode})
+    return {"available": True, "summary": summary, "provider": "trustvault", "model": f"deterministic_{execution_source}_summary", "warnings": [] if str(values.get("ai_provider", "none")).lower() in {"lm_studio", "lmstudio"} else ["AI summary requested but effective ai_provider is not lm_studio; deterministic summary used."], "evidence_row_count": len(rows), "source_of_truth_notice": "The preserved FITS evidence and payload hashes remain the source of truth.", "ai_used_for_summary": False}
+
+
+def _summarise_entity_profile_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]], db: Session, audit_logger: AuditLogger) -> dict[str, Any]:
+    external_id = request.entity_external_id or (rows[0].get("entity_external_id") if rows else None) or (rows[0].get("external_id") if rows else None)
+    match = re.search(r"\bCUST-[0-9A-Z_-]+\b", request.query.upper())
+    if not external_id and match:
+        external_id = match.group(0)
+    if not external_id:
+        return {"available": False, "warning": "No entity was available to summarise."}
+    profile = _build_entity_profile_for_summary(db, str(external_id))
+    values = _settings_values(db)
+    if str(values.get("ai_provider", "none")).lower() in {"lm_studio", "lmstudio"}:
+        ai = LmStudioAiProvider(str(values.get("lm_studio_base_url") or "http://localhost:1234"), model=_lm_studio_model(values, purpose="summary"))
+        ai_result = ai.summarise_entity_profile(profile, question=request.query)
+        audit_logger.log(AI_SUMMARY_GENERATED, raw_query=request.query, result_count=len(profile.get("representative_evidence", [])), search_source="entity_summary", ai_used=not ai_result.warnings, ai_provider=ai_result.provider, ai_model=ai_result.model, metadata={"operation": "entity_profile_summary", "entity_external_id": external_id, "warnings": ai_result.warnings})
+        if ai_result.text:
+            return {"available": True, "summary": ai_result.text, "provider": ai_result.provider, "model": ai_result.model, "warnings": ai_result.warnings, "evidence_row_count": len(profile.get("representative_evidence", [])), "source_of_truth_notice": "The preserved FITS evidence and payload hashes remain the source of truth.", "ai_used_for_summary": not ai_result.warnings, "entity_profile": profile}
+    summary = _deterministic_profile_summary(profile)
+    audit_logger.log(AI_SUMMARY_GENERATED, raw_query=request.query, result_count=len(profile.get("representative_evidence", [])), search_source="entity_summary", ai_used=False, ai_provider="trustvault", ai_model="deterministic_entity_profile_summary", metadata={"operation": "deterministic_entity_profile_summary", "entity_external_id": external_id})
+    return {"available": True, "summary": summary, "provider": "trustvault", "model": "deterministic_entity_profile_summary", "warnings": ["AI summary requested but effective ai_provider is not lm_studio; deterministic entity profile summary used."], "evidence_row_count": len(profile.get("representative_evidence", [])), "source_of_truth_notice": "The preserved FITS evidence and payload hashes remain the source of truth.", "ai_used_for_summary": False, "entity_profile": profile}
+
+
+def _build_entity_profile_for_summary(db: Session, entity_external_id: str) -> dict[str, Any]:
+    service = TrustVaultFeatureService(db)
+    summary = service.entity_evidence_summary(entity_external_id)
+    entity_summary = summary.get("entity", {})
+    entity = db.scalars(select(Entity).where(Entity.external_id == entity_external_id)).first()
+    current_id = entity_summary.get("current_container_version_id")
+    version = db.get(EntityContainerVersion, current_id) if current_id else None
+    representative_rows: list[dict[str, Any]] = []
+    if entity:
+        entries = db.scalars(select(FitsIndexEntry).where(FitsIndexEntry.entity_id == entity.id).order_by(FitsIndexEntry.created_at.desc()).limit(100)).all()
+        seen: set[str] = set()
+        for entry in entries:
+            row = _public_row(_row_from_index_entry(entry, entity))
+            key = str(row.get("evidence_object_id") or row.get("filename") or row.get("sha256") or len(seen))
+            if key in seen:
+                continue
+            seen.add(key)
+            representative_rows.append(_safe_summary_row(row))
+            if len(representative_rows) >= 20:
+                break
+    completeness = _safe_service_call(lambda: service.evaluate_completeness(entity_external_id), default={})
+    retention_report = _safe_service_call(lambda: service.retention_report(entity_external_id), default={})
+    retention_rows = (retention_report.get("entities", [{}])[0].get("evidence", []) if retention_report else []) or []
+    extraction_report = _safe_service_call(lambda: service.extraction_report(entity_external_id), default={})
+    ocr_rows = extraction_report.get("ocr_text", []) if extraction_report else []
+    integrity_report = _safe_service_call(lambda: service.integrity_summary(entity_external_id), default={})
+    integrity_result = (integrity_report.get("results") or [{}])[0] if integrity_report else {}
     return {
-        "available": True,
-        "summary": summary,
-        "provider": "trustvault",
-        "model": f"deterministic_{execution_source}_summary",
-        "warnings": [] if str(values.get("ai_provider", "none")).lower() in {"lm_studio", "lmstudio"} else ["AI summary requested but effective ai_provider is not lm_studio; deterministic summary used."],
-        "evidence_row_count": len(rows),
-        "source_of_truth_notice": "The preserved FITS evidence and payload hashes remain the source of truth.",
-        "ai_used_for_summary": False,
+        "entity": entity_summary,
+        "container": {
+            "container_version_id": current_id,
+            "version_number": entity_summary.get("current_container_version_number"),
+            "storage_uri": entity_summary.get("current_container_storage_uri"),
+            "status": version.status if version else None,
+            "sha256": version.sha256 if version else None,
+            "size_bytes": version.size_bytes if version else None,
+            "hdu_count": len(version.manifest_json.get("hdu_names", [])) if version and version.manifest_json else None,
+        },
+        "evidence_count": summary.get("evidence_count"),
+        "counts_by_category": summary.get("counts_by_category") or {},
+        "counts_by_document_type": summary.get("counts_by_document_type") or {},
+        "representative_evidence": representative_rows,
+        "completeness": {"score": completeness.get("score"), "required_count": completeness.get("required_count"), "present_count": completeness.get("present_count"), "missing_count": completeness.get("missing_count"), "missing_rules": [row for row in completeness.get("results", []) if row.get("status") == "missing"][:12]} if completeness else {},
+        "retention": {"evidence_count": len(retention_rows), "legal_hold_count": sum(1 for row in retention_rows if str(row.get("legal_hold_status") or "none").lower() != "none"), "deletion_eligible_count": sum(1 for row in retention_rows if row.get("deletion_eligible") is True), "sample": retention_rows[:8]},
+        "extraction": {"text_row_count": len(ocr_rows), "character_count": sum(int(row.get("character_count") or len(str(row.get("extracted_text") or ""))) for row in ocr_rows), "sample": ocr_rows[:5]},
+        "integrity": {"overall_status": integrity_result.get("overall_status") or integrity_result.get("status"), "container_hash_matches": integrity_result.get("container_hash_matches"), "fits_opened": integrity_result.get("fits_opened"), "failed_payload_count": len([row for row in integrity_result.get("payload_results", []) if row.get("valid") is not True]) if isinstance(integrity_result.get("payload_results"), list) else None, "missing_required_hdus": integrity_result.get("missing_required_hdus")},
     }
+
+
+def _safe_service_call(func, *, default: Any) -> Any:
+    try:
+        return func()
+    except Exception:
+        return default
+
+
+def _deterministic_profile_summary(profile: dict[str, Any]) -> str:
+    entity = profile.get("entity") or {}
+    container = profile.get("container") or {}
+    completeness = profile.get("completeness") or {}
+    retention = profile.get("retention") or {}
+    extraction = profile.get("extraction") or {}
+    integrity = profile.get("integrity") or {}
+    evidence = profile.get("representative_evidence") or []
+    lines = [
+        f"Entity {entity.get('external_id') or entity.get('entity_external_id') or '-'} ({entity.get('display_name') or entity.get('entity_display_name') or '-'}) is recorded with risk rating {entity.get('risk_rating') or '-'} and jurisdiction {entity.get('jurisdiction') or '-' }.",
+        f"The entity has {profile.get('evidence_count') or 0} evidence object(s) in the current TrustVault evidence profile.",
+    ]
+    if container:
+        lines.append(f"Current FITS container: version={container.get('version_number') or '-'}, status={container.get('status') or '-'}, sha256={container.get('sha256') or '-' }.")
+    if profile.get("counts_by_category"):
+        lines.append("Evidence categories: " + ", ".join(f"{key} ({value})" for key, value in profile.get("counts_by_category", {}).items()) + ".")
+    if profile.get("counts_by_document_type"):
+        lines.append("Document types: " + ", ".join(f"{key} ({value})" for key, value in profile.get("counts_by_document_type", {}).items()) + ".")
+    if evidence:
+        lines.append("Representative files: " + ", ".join(str(row.get("filename") or row.get("object_id") or "-") for row in evidence[:6]) + ".")
+    if completeness:
+        lines.append(f"Completeness: score={completeness.get('score')}, missing={completeness.get('missing_count')}.")
+    if retention:
+        lines.append(f"Retention/legal hold: legal_holds={retention.get('legal_hold_count')}, deletion_eligible={retention.get('deletion_eligible_count')}.")
+    if extraction:
+        lines.append(f"Extraction: text_rows={extraction.get('text_row_count')}, character_count={extraction.get('character_count')}.")
+    if integrity:
+        lines.append(f"Integrity: status={integrity.get('overall_status')}, failed_payloads={integrity.get('failed_payload_count')}.")
+    lines.append("Preserved FITS evidence and payload hashes remain the source of truth.")
+    return "\n".join(lines)
 
 
 def _deterministic_entity_summary(rows: list[dict[str, Any]]) -> str:
@@ -345,23 +403,15 @@ def _deterministic_entity_summary(rows: list[dict[str, Any]]) -> str:
     jurisdiction_counts = Counter(str(row.get("jurisdiction") or "Unknown") for row in rows)
     total_evidence_objects = sum(int(row.get("evidence_object_count") or 0) for row in rows)
     lines = [
-        f"Returned {len(rows)} customer entit{'y' if len(rows) == 1 else 'ies'}.",
+        f"Returned {len(rows)} entit{'y' if len(rows) == 1 else 'ies'}.",
         "Risk ratings: " + ", ".join(f"{key}: {value}" for key, value in sorted(risk_counts.items())),
         "Jurisdictions: " + ", ".join(f"{key}: {value}" for key, value in sorted(jurisdiction_counts.items())),
-        f"Total indexed evidence objects across returned customers: {total_evidence_objects}.",
+        f"Total indexed evidence objects across returned entities: {total_evidence_objects}.",
         "",
-        "Customers:",
+        "Entities:",
     ]
     for row in rows:
-        lines.append(
-            "- "
-            f"{row.get('entity_external_id') or row.get('external_id')}: "
-            f"{row.get('entity_display_name') or row.get('display_name') or '-'}; "
-            f"risk={row.get('risk_rating') or '-'}; "
-            f"jurisdiction={row.get('jurisdiction') or '-'}; "
-            f"evidence_objects={row.get('evidence_object_count') or 0}; "
-            f"fits_current={bool(row.get('has_current_fits_container'))}"
-        )
+        lines.append(f"- {row.get('entity_external_id') or row.get('external_id')}: {row.get('entity_display_name') or row.get('display_name') or '-'}; risk={row.get('risk_rating') or '-'}; jurisdiction={row.get('jurisdiction') or '-'}; evidence_objects={row.get('evidence_object_count') or 0}; fits_current={bool(row.get('has_current_fits_container'))}")
     lines.extend(["", "The preserved FITS evidence and payload hashes remain the source of truth."])
     return "\n".join(lines)
 
@@ -373,6 +423,7 @@ def _safe_summary_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "entity_external_id": row.get("entity_external_id") or row.get("external_id"),
         "entity_display_name": row.get("entity_display_name") or row.get("display_name"),
+        "evidence_object_id": row.get("evidence_object_id"),
         "filename": row.get("filename"),
         "object_type": row.get("object_type") or row.get("entity_type"),
         "category": metadata.get("category") or nested.get("category") or row.get("category"),
@@ -403,28 +454,11 @@ def _metadata_value(row: dict[str, Any], key: str) -> Any:
 
 
 def _customer_row(customer: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "entity_id": customer.get("id"),
-        "entity_external_id": customer.get("external_id"),
-        "entity_display_name": customer.get("display_name"),
-        "external_id": customer.get("external_id"),
-        "display_name": customer.get("display_name"),
-        "entity_type": customer.get("entity_type"),
-        "status": customer.get("status"),
-        "risk_rating": customer.get("risk_rating"),
-        "jurisdiction": customer.get("jurisdiction"),
-        "evidence_object_count": customer.get("evidence_object_count"),
-        "has_current_fits_container": customer.get("has_current_fits_container"),
-        "current_container_version_id": customer.get("current_container_version_id"),
-        "current_container_version_number": customer.get("current_container_version_number"),
-        "current_container_storage_uri": customer.get("current_container_storage_uri"),
-        "metadata_json": customer.get("metadata_json"),
-    }
+    return {"entity_id": customer.get("id"), "entity_external_id": customer.get("external_id"), "entity_display_name": customer.get("display_name"), "external_id": customer.get("external_id"), "display_name": customer.get("display_name"), "entity_type": customer.get("entity_type"), "status": customer.get("status"), "risk_rating": customer.get("risk_rating"), "jurisdiction": customer.get("jurisdiction"), "evidence_object_count": customer.get("evidence_object_count"), "has_current_fits_container": customer.get("has_current_fits_container"), "current_container_version_id": customer.get("current_container_version_id"), "current_container_version_number": customer.get("current_container_version_number"), "current_container_storage_uri": customer.get("current_container_storage_uri"), "metadata_json": customer.get("metadata_json")}
 
 
 def _requested_limit(raw_query: str, fallback: int) -> int:
-    lower = raw_query.lower()
-    match = re.search(r"\b(?:first|top|list)\s+(\d{1,3})\b", lower)
+    match = re.search(r"\b(?:first|top|list)\s+(\d{1,3})\b", raw_query.lower())
     if match:
         return max(1, min(int(match.group(1)), fallback))
     return fallback
@@ -432,48 +466,15 @@ def _requested_limit(raw_query: str, fallback: int) -> int:
 
 def _entity_discovery_result(service: TrustVaultFeatureService, structured: StructuredQuery, limit: int) -> dict[str, Any]:
     effective_limit = _requested_limit(structured.raw_query, limit)
-    customers = service.customers(risk_rating=structured.risk_rating, jurisdiction=structured.jurisdiction, limit=effective_limit)
-    rows = [_customer_row(customer) for customer in customers]
-    return {
-        "query": structured.raw_query,
-        "entity_id": None,
-        "entity_external_id": None,
-        "container_version_id": None,
-        "result_count": len(rows),
-        "results": rows,
-        "filtered_entity_count": len(rows),
-        "diagnostics": {
-            "entity_filter_applied": bool(structured.risk_rating or structured.jurisdiction),
-            "requested_risk_rating": structured.risk_rating,
-            "requested_jurisdiction": structured.jurisdiction,
-            "requested_limit": effective_limit,
-            "matching_entity_count": len(rows),
-            "matching_entity_external_ids": [row["entity_external_id"] for row in rows],
-            "execution_mode": "entity_discovery",
-            "evidence_text_filter_applied": False,
-        },
-    }
+    entities = service.customers(risk_rating=structured.risk_rating, jurisdiction=structured.jurisdiction, limit=effective_limit)
+    rows = [_customer_row(entity) for entity in entities]
+    return {"query": structured.raw_query, "entity_id": None, "entity_external_id": None, "container_version_id": None, "result_count": len(rows), "results": rows, "filtered_entity_count": len(rows), "diagnostics": {"entity_filter_applied": bool(structured.risk_rating or structured.jurisdiction), "requested_risk_rating": structured.risk_rating, "requested_jurisdiction": structured.jurisdiction, "requested_limit": effective_limit, "matching_entity_count": len(rows), "matching_entity_external_ids": [row["entity_external_id"] for row in rows], "execution_mode": "entity_discovery", "evidence_text_filter_applied": False}}
 
 
 def _archive_status_result(service: TrustVaultFeatureService, structured: StructuredQuery) -> dict[str, Any]:
     status = service.archive_status()
-    rows = [
-        {"key": "entity_count", "value": status.get("entity_count")},
-        {"key": "current_fits_container_count", "value": status.get("current_fits_container_count")},
-        {"key": "evidence_object_count", "value": status.get("evidence_object_count")},
-        {"key": "fits_index_entry_count", "value": status.get("fits_index_entry_count")},
-        {"key": "source_folder", "value": status.get("configuration", {}).get("source_folder")},
-        {"key": "containers_folder", "value": status.get("configuration", {}).get("containers_folder")},
-        {"key": "index_path", "value": status.get("configuration", {}).get("index_path")},
-        {"key": "exports_folder", "value": status.get("configuration", {}).get("exports_folder")},
-    ]
-    return {
-        "query": structured.raw_query,
-        "result_count": len(rows),
-        "results": rows,
-        "archive_status": status,
-        "diagnostics": {"execution_mode": "archive_status", "evidence_text_filter_applied": False},
-    }
+    rows = [{"key": "entity_count", "value": status.get("entity_count")}, {"key": "current_fits_container_count", "value": status.get("current_fits_container_count")}, {"key": "evidence_object_count", "value": status.get("evidence_object_count")}, {"key": "fits_index_entry_count", "value": status.get("fits_index_entry_count")}, {"key": "source_folder", "value": status.get("configuration", {}).get("source_folder")}, {"key": "containers_folder", "value": status.get("configuration", {}).get("containers_folder")}, {"key": "index_path", "value": status.get("configuration", {}).get("index_path")}, {"key": "exports_folder", "value": status.get("configuration", {}).get("exports_folder")}]
+    return {"query": structured.raw_query, "result_count": len(rows), "results": rows, "archive_status": status, "diagnostics": {"execution_mode": "archive_status", "evidence_text_filter_applied": False}}
 
 
 def _entity_summary_result(db: Session, service: TrustVaultFeatureService, structured: StructuredQuery) -> dict[str, Any]:
@@ -487,16 +488,7 @@ def _entity_summary_result(db: Session, service: TrustVaultFeatureService, struc
         current_id = entity.get("current_container_version_id")
         if current_id:
             version = db.get(EntityContainerVersion, current_id)
-            rows.append({
-                "entity_external_id": structured.entity_external_id,
-                "container_version_id": current_id,
-                "version_number": entity.get("current_container_version_number"),
-                "status": version.status if version else "current",
-                "storage_uri": entity.get("current_container_storage_uri"),
-                "sha256": version.sha256 if version else None,
-                "size_bytes": version.size_bytes if version else None,
-                "hdu_count": len(version.manifest_json.get("hdu_names", [])) if version else None,
-            })
+            rows.append({"entity_external_id": structured.entity_external_id, "container_version_id": current_id, "version_number": entity.get("current_container_version_number"), "status": version.status if version else "current", "storage_uri": entity.get("current_container_storage_uri"), "sha256": version.sha256 if version else None, "size_bytes": version.size_bytes if version else None, "hdu_count": len(version.manifest_json.get("hdu_names", [])) if version else None})
     elif "retention" in lower or "legal hold" in lower:
         report = service.retention_report(structured.entity_external_id)
         rows = report.get("entities", [{}])[0].get("evidence", [])
@@ -507,14 +499,7 @@ def _entity_summary_result(db: Session, service: TrustVaultFeatureService, struc
             rows.append({"entity_external_id": structured.entity_external_id, "summary_type": "document_type_count", "document_type": document_type, "count": count})
     else:
         rows = [{**entity, "evidence_count": summary.get("evidence_count"), "counts_by_category": summary.get("counts_by_category"), "counts_by_document_type": summary.get("counts_by_document_type")}]
-    return {
-        "query": structured.raw_query,
-        "entity_external_id": structured.entity_external_id,
-        "result_count": len(rows),
-        "results": rows,
-        "entity_summary": summary,
-        "diagnostics": {"execution_mode": "entity_summary", "evidence_text_filter_applied": False},
-    }
+    return {"query": structured.raw_query, "entity_external_id": structured.entity_external_id, "result_count": len(rows), "results": rows, "entity_summary": summary, "diagnostics": {"execution_mode": "entity_summary", "evidence_text_filter_applied": False}}
 
 
 def _payload_metadata_result(db: Session, structured: StructuredQuery) -> dict[str, Any]:
@@ -528,14 +513,7 @@ def _payload_metadata_result(db: Session, structured: StructuredQuery) -> dict[s
             if structured.entity_external_id and entity and entity.external_id != structured.entity_external_id:
                 continue
             rows.append(_public_row(_row_from_index_entry(entry, entity)))
-    return {
-        "query": structured.raw_query,
-        "entity_external_id": structured.entity_external_id,
-        "object_id": object_id,
-        "result_count": len(rows),
-        "results": rows,
-        "diagnostics": {"execution_mode": "payload_metadata", "evidence_text_filter_applied": False},
-    }
+    return {"query": structured.raw_query, "entity_external_id": structured.entity_external_id, "object_id": object_id, "result_count": len(rows), "results": rows, "diagnostics": {"execution_mode": "payload_metadata", "evidence_text_filter_applied": False}}
 
 
 def _row_matches_cohort(entity: Entity, row: dict[str, Any], structured: StructuredQuery, allowed_external_ids: set[str]) -> tuple[bool, str]:
@@ -553,31 +531,14 @@ def _row_matches_cohort(entity: Entity, row: dict[str, Any], structured: Structu
 
 
 def _structured_index_search(db: Session, service: TrustVaultFeatureService, structured: StructuredQuery, query: str, limit: int) -> dict[str, Any]:
-    customers = service.customers(risk_rating=structured.risk_rating, jurisdiction=structured.jurisdiction)
+    entities = service.customers(risk_rating=structured.risk_rating, jurisdiction=structured.jurisdiction)
     entity_filter_applied = bool(structured.entity_external_id or structured.risk_rating or structured.jurisdiction)
-    allowed_external_ids = {customer["external_id"] for customer in customers}
-    diagnostics = {
-        "entity_filter_applied": entity_filter_applied,
-        "requested_entity_external_id": structured.entity_external_id,
-        "requested_risk_rating": structured.risk_rating,
-        "requested_jurisdiction": structured.jurisdiction,
-        "matching_entity_count": len(customers),
-        "matching_entity_external_ids": sorted(allowed_external_ids)[:100],
-        "matching_evidence_metadata_entity_count": 0,
-        "matching_evidence_metadata_external_ids": [],
-        "cohort_rejected_index_entry_count": 0,
-        "metadata_filter_applied": bool(structured.categories or structured.document_types or structured.snapshot_id),
-        "categories": structured.categories,
-        "document_types": structured.document_types,
-        "snapshot_id": structured.snapshot_id,
-        "search_terms": structured.search_terms,
-    }
-
+    allowed_external_ids = {entity["external_id"] for entity in entities}
+    diagnostics = {"entity_filter_applied": entity_filter_applied, "requested_entity_external_id": structured.entity_external_id, "requested_risk_rating": structured.risk_rating, "requested_jurisdiction": structured.jurisdiction, "matching_entity_count": len(entities), "matching_entity_external_ids": sorted(allowed_external_ids)[:100], "matching_evidence_metadata_entity_count": 0, "matching_evidence_metadata_external_ids": [], "cohort_rejected_index_entry_count": 0, "metadata_filter_applied": bool(structured.categories or structured.document_types or structured.snapshot_id), "categories": structured.categories, "document_types": structured.document_types, "snapshot_id": structured.snapshot_id, "search_terms": structured.search_terms}
     entries = db.scalars(select(FitsIndexEntry).order_by(FitsIndexEntry.created_at.desc()).limit(5000)).all()
     rows: list[dict[str, Any]] = []
     matched_by_evidence_metadata: set[str] = set()
     matched_by_entity_metadata: set[str] = set()
-
     for entry in entries:
         entity = db.get(Entity, entry.entity_id)
         if entity is None:
@@ -598,7 +559,6 @@ def _structured_index_search(db: Session, service: TrustVaultFeatureService, str
         row["match_score"] = match["score"]
         row["cohort_match_source"] = cohort_source
         rows.append(row)
-
     rows.sort(key=lambda item: (item.get("match_score", 0), item.get("entity_external_id", ""), item.get("filename", "")), reverse=True)
     limited = [_public_row(row) for row in rows[:limit]]
     effective_entity_ids = {row["entity_external_id"] for row in rows if row.get("entity_external_id")}
@@ -609,16 +569,7 @@ def _structured_index_search(db: Session, service: TrustVaultFeatureService, str
     diagnostics["matching_entity_metadata_after_index_scan_count"] = len(matched_by_entity_metadata)
     diagnostics["effective_matching_entity_count"] = len(effective_entity_ids)
     diagnostics["effective_matching_entity_external_ids"] = sorted(effective_entity_ids)[:100]
-    return {
-        "query": query,
-        "entity_id": None,
-        "entity_external_id": structured.entity_external_id,
-        "container_version_id": None,
-        "result_count": len(limited),
-        "results": limited,
-        "filtered_entity_count": len(effective_entity_ids) if entity_filter_applied else None,
-        "diagnostics": diagnostics,
-    }
+    return {"query": query, "entity_id": None, "entity_external_id": structured.entity_external_id, "container_version_id": None, "result_count": len(limited), "results": limited, "filtered_entity_count": len(effective_entity_ids) if entity_filter_applied else None, "diagnostics": diagnostics}
 
 
 def _row_from_index_entry(entry: FitsIndexEntry, entity: Entity | None) -> dict[str, Any]:
@@ -626,29 +577,7 @@ def _row_from_index_entry(entry: FitsIndexEntry, entity: Entity | None) -> dict[
     nested = metadata.get("metadata") if isinstance(metadata.get("metadata"), dict) else {}
     search_text = nested.get("search_text") or metadata.get("search_text") or entry.text_content or ""
     searchable = "\n".join([entry.filename or "", entry.object_type or "", entry.source_system or "", search_text, json.dumps(metadata, default=str)])
-    return {
-        "entity_id": str(entry.entity_id),
-        "entity_external_id": entity.external_id if entity else None,
-        "entity_display_name": entity.display_name if entity else None,
-        "container_version_id": str(entry.container_version_id),
-        "evidence_object_id": entry.evidence_object_id,
-        "hdu_name": entry.hdu_name,
-        "filename": entry.filename,
-        "object_type": entry.object_type,
-        "source_system": entry.source_system,
-        "sha256": entry.sha256,
-        "snippet": _snippet(search_text or searchable, ""),
-        "metadata": metadata,
-        "text_content": search_text,
-        "risk_rating": metadata.get("risk_rating") or nested.get("risk_rating"),
-        "jurisdiction": metadata.get("jurisdiction") or nested.get("jurisdiction"),
-        "category": metadata.get("category") or nested.get("category"),
-        "document_type": metadata.get("document_type") or nested.get("document_type"),
-        "retention_class": metadata.get("retention_class") or nested.get("retention_class"),
-        "retention_until": metadata.get("retention_until") or nested.get("retention_until"),
-        "legal_hold_status": metadata.get("legal_hold_status") or nested.get("legal_hold_status"),
-        "_searchable": searchable,
-    }
+    return {"entity_id": str(entry.entity_id), "entity_external_id": entity.external_id if entity else None, "entity_display_name": entity.display_name if entity else None, "container_version_id": str(entry.container_version_id), "evidence_object_id": entry.evidence_object_id, "hdu_name": entry.hdu_name, "filename": entry.filename, "object_type": entry.object_type, "source_system": entry.source_system, "sha256": entry.sha256, "snippet": _snippet(search_text or searchable, ""), "metadata": metadata, "text_content": search_text, "risk_rating": metadata.get("risk_rating") or nested.get("risk_rating"), "jurisdiction": metadata.get("jurisdiction") or nested.get("jurisdiction"), "category": metadata.get("category") or nested.get("category"), "document_type": metadata.get("document_type") or nested.get("document_type"), "retention_class": metadata.get("retention_class") or nested.get("retention_class"), "retention_until": metadata.get("retention_until") or nested.get("retention_until"), "legal_hold_status": metadata.get("legal_hold_status") or nested.get("legal_hold_status"), "_searchable": searchable}
 
 
 def _structured_row_match(row: dict[str, Any], structured: StructuredQuery) -> dict[str, Any]:
@@ -659,14 +588,12 @@ def _structured_row_match(row: dict[str, Any], structured: StructuredQuery) -> d
     object_type = _norm(row.get("object_type"))
     filename = _norm(row.get("filename"))
     searchable = _text_norm(row.get("_searchable"))
-
     categories = {_norm(item) for item in structured.categories if item}
     document_types = {_norm(item) for item in structured.document_types if item}
     terms = [_text_norm(item) for item in structured.search_terms if item]
     onboarding = structured.snapshot_id == "ONBOARDING" or "onboarding" in _text_norm(structured.raw_query)
     score = 0
     reasons: list[str] = []
-
     if onboarding:
         allowed_categories = categories or ONBOARDING_CATEGORIES
         if category in allowed_categories or category in ONBOARDING_CATEGORIES:
@@ -681,25 +608,21 @@ def _structured_row_match(row: dict[str, Any], structured: StructuredQuery) -> d
             reasons.append("category")
         elif not document_types and not terms:
             return {"matched": False, "score": 0, "reason": "category_filter_not_matched"}
-
     if document_types:
         if document_type in document_types or object_type in document_types:
             score += 50
             reasons.append("document_type")
         elif not categories and not terms and not onboarding:
             return {"matched": False, "score": 0, "reason": "document_type_filter_not_matched"}
-
     term_match = _term_matches(terms, searchable)
     if term_match:
         score += 30
         reasons.append("text")
-
     if categories or document_types:
         if score <= 0:
             return {"matched": False, "score": 0, "reason": "metadata_or_text_filter_not_matched"}
     elif not onboarding and not term_match:
         return {"matched": False, "score": 0, "reason": "text_not_matched"}
-
     row["snippet"] = _best_snippet(row.get("text_content") or searchable, terms)
     return {"matched": True, "score": score, "reason": ",".join(reasons) or "text"}
 
@@ -753,100 +676,49 @@ def query_scenarios() -> dict[str, Any]:
 @router.post("/interpret")
 def interpret_query(request: InterpretRequest, db: Session = Depends(get_database), audit_logger: AuditLogger = Depends(get_audit_logger), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     structured, meta = _interpret(request, db)
-    audit_logger.log(
-        AI_SUMMARY_GENERATED if meta["ai_used"] else SEARCH_EXECUTED,
-        raw_query=request.query,
-        structured_query=structured.to_dict(),
-        ai_used=meta["ai_used"],
-        ai_provider=meta.get("ai_provider"),
-        ai_model=meta.get("ai_model"),
-        user_id=str(current_user.id),
-        metadata={"operation": "query_interpret", "user_email": current_user.email, "user_display_name": current_user.display_name, **meta},
-    )
+    audit_logger.log(AI_SUMMARY_GENERATED if meta["ai_used"] else SEARCH_EXECUTED, raw_query=request.query, structured_query=structured.to_dict(), ai_used=meta["ai_used"], ai_provider=meta.get("ai_provider"), ai_model=meta.get("ai_model"), user_id=str(current_user.id), metadata={"operation": "query_interpret", "user_email": current_user.email, "user_display_name": current_user.display_name, **meta})
     return {"structured_query": structured.to_dict(), "interpretation": meta}
 
 
-def _audit_and_return(
-    *,
-    request: ExecuteRequest,
-    structured: StructuredQuery,
-    meta: dict[str, Any],
-    result: dict[str, Any],
-    execution_source: str,
-    audit_logger: AuditLogger,
-    db: Session,
-    current_user: User,
-) -> dict[str, Any]:
+def _audit_and_return(*, request: ExecuteRequest, structured: StructuredQuery, meta: dict[str, Any], result: dict[str, Any], execution_source: str, audit_logger: AuditLogger, db: Session, current_user: User) -> dict[str, Any]:
     rows = result.get("results", [])
     object_ids = [row.get("evidence_object_id") for row in rows if row.get("evidence_object_id")]
     entity_ids = [row.get("entity_id") for row in rows if row.get("entity_id")]
     entity_external_ids = sorted({str(row.get("entity_external_id") or row.get("external_id")) for row in rows if row.get("entity_external_id") or row.get("external_id")})
-    audit_logger.log(
-        SEARCH_EXECUTED,
-        raw_query=request.query,
-        structured_query=structured.to_dict(),
-        result_count=result.get("result_count", 0),
-        search_source=execution_source,
-        entity_ids=entity_ids,
-        object_ids=object_ids,
-        ai_used=meta["ai_used"],
-        ai_provider=meta.get("ai_provider"),
-        ai_model=meta.get("ai_model"),
-        user_id=str(current_user.id),
-        metadata={
-            "query_mode": structured.execute_with,
-            "interpretation": meta,
-            "diagnostics": result.get("diagnostics"),
-            "user_email": current_user.email,
-            "user_display_name": current_user.display_name,
-            "entity_external_ids": entity_external_ids,
-            "object_count": len(object_ids),
-        },
-    )
+    audit_logger.log(SEARCH_EXECUTED, raw_query=request.query, structured_query=structured.to_dict(), result_count=result.get("result_count", 0), search_source=execution_source, entity_ids=entity_ids, object_ids=object_ids, ai_used=meta["ai_used"], ai_provider=meta.get("ai_provider"), ai_model=meta.get("ai_model"), user_id=str(current_user.id), metadata={"query_mode": structured.execute_with, "interpretation": meta, "diagnostics": result.get("diagnostics"), "user_email": current_user.email, "user_display_name": current_user.display_name, "entity_external_ids": entity_external_ids, "object_count": len(object_ids)})
     summary = _summarise_if_requested(request, rows, db, execution_source, audit_logger)
     return {"structured_query": structured.to_dict(), "interpretation": meta, "execution_source": execution_source, "result": result, "ai_summary": summary}
 
 
 @router.post("/execute")
-def execute_query(
-    request: ExecuteRequest,
-    db: Session = Depends(get_database),
-    audit_logger: AuditLogger = Depends(get_audit_logger),
-    current_user: User = Depends(get_current_user),
-) -> dict[str, Any]:
+def execute_query(request: ExecuteRequest, db: Session = Depends(get_database), audit_logger: AuditLogger = Depends(get_audit_logger), current_user: User = Depends(get_current_user)) -> dict[str, Any]:
     service = TrustVaultFeatureService(db)
     reader = FitsContainerReader(db)
     structured, meta = _interpret(request, db)
     terms = structured.search_terms or [request.query]
     search_query = " ".join(terms)
-
     if structured.capability == "archive_status":
         return _audit_and_return(request=request, structured=structured, meta=meta, result=_archive_status_result(service, structured), execution_source="archive_status", audit_logger=audit_logger, db=db, current_user=current_user)
-
     if structured.capability == "entity_summary":
         return _audit_and_return(request=request, structured=structured, meta=meta, result=_entity_summary_result(db, service, structured), execution_source="entity_summary", audit_logger=audit_logger, db=db, current_user=current_user)
-
     if structured.capability == "payload_metadata":
         return _audit_and_return(request=request, structured=structured, meta=meta, result=_payload_metadata_result(db, structured), execution_source="payload_metadata", audit_logger=audit_logger, db=db, current_user=current_user)
-
     if structured.capability == "entity_discovery":
         return _audit_and_return(request=request, structured=structured, meta=meta, result=_entity_discovery_result(service, structured, request.limit), execution_source="entity_metadata", audit_logger=audit_logger, db=db, current_user=current_user)
-
     if structured.capability == "completeness_check":
         if structured.entity_external_id:
             result = service.evaluate_completeness(structured.entity_external_id)
         else:
-            customers = service.customers(risk_rating=structured.risk_rating, jurisdiction=structured.jurisdiction)
+            entities = service.customers(risk_rating=structured.risk_rating, jurisdiction=structured.jurisdiction)
             runs = []
-            for customer in customers:
-                run = service.evaluate_completeness(customer["external_id"])
+            for entity in entities:
+                run = service.evaluate_completeness(entity["external_id"])
                 if structured.missing_evidence_type or "incomplete" in request.query.lower():
                     if run["missing_count"] <= 0:
                         continue
                 runs.append(run)
-            result = {"result_count": len(runs), "results": runs, "diagnostics": {"matching_entity_count": len(customers), "execution_mode": "completeness_check"}}
+            result = {"result_count": len(runs), "results": runs, "diagnostics": {"matching_entity_count": len(entities), "execution_mode": "completeness_check"}}
         return _audit_and_return(request=request, structured=structured, meta=meta, result=result, execution_source="completeness_rules", audit_logger=audit_logger, db=db, current_user=current_user)
-
     if structured.entity_external_id:
         try:
             result = reader.direct_search(structured.entity_external_id, search_query, request.limit)
@@ -859,5 +731,4 @@ def execute_query(
     else:
         result = _structured_index_search(db, service, structured, search_query, request.limit)
         execution_source = "fits_index"
-
     return _audit_and_return(request=request, structured=structured, meta=meta, result=result, execution_source=execution_source, audit_logger=audit_logger, db=db, current_user=current_user)
