@@ -1,12 +1,472 @@
 import 'package:flutter/material.dart';
 
-import '../assurance/assurance_overview_screen.dart';
+import '../../core/api/trustvault_api_client.dart';
+import '../../shared/trustvault_data_grid.dart';
 
-class CompletenessScreen extends StatelessWidget {
+class CompletenessScreen extends StatefulWidget {
   const CompletenessScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return const AssuranceOverviewScreen(kind: AssuranceKind.completeness);
+  State<CompletenessScreen> createState() => _CompletenessScreenState();
+}
+
+class _CompletenessScreenState extends State<CompletenessScreen> {
+  final TrustVaultApiClient _apiClient = TrustVaultApiClient();
+
+  late Future<_CompletenessViewModel> _future;
+  String _riskRating = 'All';
+  String _jurisdiction = 'All';
+  String _entityMode = 'All entities';
+  String? _selectedEntityExternalId;
+  bool _includeAiSummary = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
   }
+
+  Future<_CompletenessViewModel> _load() async {
+    final entities = (await _apiClient.getCustomers(limit: 1000)).cast<Map<String, dynamic>>();
+    final filteredEntities = entities.where((entity) {
+      final riskOk = _riskRating == 'All' || '${entity['risk_rating'] ?? ''}' == _riskRating;
+      final jurisdictionOk = _jurisdiction == 'All' || '${entity['jurisdiction'] ?? ''}' == _jurisdiction;
+      final entityOk = _entityMode == 'All entities' || entity['external_id'] == _selectedEntityExternalId;
+      return riskOk && jurisdictionOk && entityOk;
+    }).toList();
+
+    final rows = <Map<String, dynamic>>[];
+    int complete = 0;
+    int incomplete = 0;
+    int missingItems = 0;
+
+    for (final entity in filteredEntities) {
+      final externalId = '${entity['external_id']}';
+      final report = await _apiClient.evaluateCompleteness(externalId);
+      final score = (report['score'] as num?)?.toInt() ?? 0;
+      final missingCount = (report['missing_count'] as num?)?.toInt() ?? 0;
+      if (missingCount > 0 || score < 100) {
+        incomplete += 1;
+      } else {
+        complete += 1;
+      }
+      missingItems += missingCount;
+
+      final ruleRows = (report['results'] as List<dynamic>? ?? <dynamic>[]).cast<Map<String, dynamic>>();
+      for (final rule in ruleRows) {
+        rows.add({
+          'entity_external_id': externalId,
+          'entity_display_name': entity['display_name'],
+          'entity_type': entity['entity_type'],
+          'risk_rating': entity['risk_rating'],
+          'jurisdiction': entity['jurisdiction'],
+          'entity_status': entity['status'],
+          'completeness_score': score,
+          'required_count': report['required_count'],
+          'present_count': report['present_count'],
+          'missing_count': missingCount,
+          'rule_status': rule['status'],
+          'rule_key': rule['rule_key'],
+          'category': rule['category'],
+          'document_type': rule['document_type'],
+          'required': rule['required'],
+          'matched_evidence_object_id': rule['matched_evidence_object_id'],
+          'matched_filename': rule['matched_filename'],
+          'ruleset_id': report['ruleset_id'],
+        });
+      }
+    }
+
+    Map<String, dynamic>? aiSummary;
+    if (_includeAiSummary) {
+      final query = _buildCompletenessQuery();
+      aiSummary = await _apiClient.executeQuery(query: query, mode: 'ai', includeAiSummary: true, limit: 500);
+    }
+
+    return _CompletenessViewModel(
+      allEntities: entities,
+      filteredEntities: filteredEntities,
+      rows: rows,
+      evaluatedCount: filteredEntities.length,
+      completeCount: complete,
+      incompleteCount: incomplete,
+      missingEvidenceItems: missingItems,
+      aiSummary: aiSummary,
+    );
+  }
+
+  String _buildCompletenessQuery() {
+    final parts = <String>['Check evidence completeness'];
+    if (_entityMode == 'Selected entity' && _selectedEntityExternalId != null) {
+      parts.add('for $_selectedEntityExternalId');
+    } else {
+      if (_riskRating != 'All') parts.add('for ${_riskRating.toLowerCase()} risk entities');
+      if (_jurisdiction != 'All') parts.add('in $_jurisdiction');
+    }
+    return parts.join(' ');
+  }
+
+  void _refresh() {
+    setState(() => _future = _load());
+  }
+
+  void _setFilter(VoidCallback update) {
+    setState(() {
+      update();
+      _future = _load();
+    });
+  }
+
+  List<String> _values(List<Map<String, dynamic>> rows, String key) {
+    final values = rows.map((row) => '${row[key] ?? ''}').where((value) => value.trim().isNotEmpty).toSet().toList()..sort();
+    return ['All', ...values];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(32),
+      child: FutureBuilder<_CompletenessViewModel>(
+        future: _future,
+        builder: (context, snapshot) {
+          final data = snapshot.data;
+          final loading = snapshot.connectionState != ConnectionState.done;
+          final entities = data?.allEntities ?? <Map<String, dynamic>>[];
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Completeness', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 8),
+                        const Text('Evaluate required evidence by risk rating, jurisdiction and entity. The checklist and ruleset remain the source of truth.'),
+                      ],
+                    ),
+                  ),
+                  OutlinedButton.icon(onPressed: loading ? null : _refresh, icon: const Icon(Icons.refresh), label: const Text('Refresh')),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _FilterBar(
+                riskValues: _values(entities, 'risk_rating'),
+                jurisdictionValues: _values(entities, 'jurisdiction'),
+                entities: entities,
+                riskRating: _riskRating,
+                jurisdiction: _jurisdiction,
+                entityMode: _entityMode,
+                selectedEntityExternalId: _selectedEntityExternalId,
+                includeAiSummary: _includeAiSummary,
+                onRiskChanged: (value) => _setFilter(() => _riskRating = value),
+                onJurisdictionChanged: (value) => _setFilter(() => _jurisdiction = value),
+                onEntityModeChanged: (value) => _setFilter(() => _entityMode = value),
+                onEntityChanged: (value) => _setFilter(() => _selectedEntityExternalId = value),
+                onAiSummaryChanged: (value) => _setFilter(() => _includeAiSummary = value),
+              ),
+              const SizedBox(height: 16),
+              if (snapshot.hasError)
+                Expanded(child: Center(child: Text('Unable to load completeness data: ${snapshot.error}')))
+              else if (loading && data == null)
+                const Expanded(child: Center(child: CircularProgressIndicator()))
+              else if (data != null)
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _CompletenessCards(data: data),
+                      const SizedBox(height: 16),
+                      if (_includeAiSummary) ...[
+                        _AiCompletenessSummary(response: data.aiSummary),
+                        const SizedBox(height: 16),
+                      ],
+                      Expanded(
+                        child: TrustVaultDataGrid(
+                          title: 'Completeness result set',
+                          subtitle: 'Rule-level completeness rows. Missing rows are highlighted and can be searched, sorted, filtered by visible columns and exported.',
+                          rows: data.rows,
+                          columns: _columns(context),
+                          initialSortColumnKey: 'entity_external_id',
+                          exportFilename: 'trustvault-completeness.csv',
+                          emptyText: 'No completeness rows match the selected filters.',
+                          height: 520,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  List<TrustVaultDataGridColumn> _columns(BuildContext context) {
+    return [
+      const TrustVaultDataGridColumn(key: 'entity_external_id', label: 'Entity ID', width: 120),
+      const TrustVaultDataGridColumn(key: 'entity_display_name', label: 'Entity name', width: 220),
+      const TrustVaultDataGridColumn(key: 'entity_type', label: 'Entity type', width: 130),
+      const TrustVaultDataGridColumn(key: 'risk_rating', label: 'Risk rating', width: 110),
+      const TrustVaultDataGridColumn(key: 'jurisdiction', label: 'Jurisdiction', width: 140),
+      TrustVaultDataGridColumn(
+        key: 'rule_status',
+        label: 'Rule status',
+        width: 120,
+        cellBuilder: (row) => _StatusPill(status: '${row['rule_status'] ?? '-'}'),
+      ),
+      const TrustVaultDataGridColumn(key: 'rule_key', label: 'Rule key', width: 180),
+      const TrustVaultDataGridColumn(key: 'category', label: 'Category', width: 160),
+      const TrustVaultDataGridColumn(key: 'document_type', label: 'Document type', width: 180),
+      const TrustVaultDataGridColumn(key: 'completeness_score', label: 'Score', width: 80),
+      const TrustVaultDataGridColumn(key: 'required_count', label: 'Required', width: 90, visibleByDefault: false),
+      const TrustVaultDataGridColumn(key: 'present_count', label: 'Present', width: 90, visibleByDefault: false),
+      const TrustVaultDataGridColumn(key: 'missing_count', label: 'Missing', width: 90),
+      const TrustVaultDataGridColumn(key: 'matched_filename', label: 'Matched filename', width: 260),
+      const TrustVaultDataGridColumn(key: 'matched_evidence_object_id', label: 'Matched evidence object', width: 300, visibleByDefault: false),
+      const TrustVaultDataGridColumn(key: 'ruleset_id', label: 'Ruleset', width: 260, visibleByDefault: false),
+    ];
+  }
+}
+
+class _FilterBar extends StatelessWidget {
+  const _FilterBar({
+    required this.riskValues,
+    required this.jurisdictionValues,
+    required this.entities,
+    required this.riskRating,
+    required this.jurisdiction,
+    required this.entityMode,
+    required this.selectedEntityExternalId,
+    required this.includeAiSummary,
+    required this.onRiskChanged,
+    required this.onJurisdictionChanged,
+    required this.onEntityModeChanged,
+    required this.onEntityChanged,
+    required this.onAiSummaryChanged,
+  });
+
+  final List<String> riskValues;
+  final List<String> jurisdictionValues;
+  final List<Map<String, dynamic>> entities;
+  final String riskRating;
+  final String jurisdiction;
+  final String entityMode;
+  final String? selectedEntityExternalId;
+  final bool includeAiSummary;
+  final ValueChanged<String> onRiskChanged;
+  final ValueChanged<String> onJurisdictionChanged;
+  final ValueChanged<String> onEntityModeChanged;
+  final ValueChanged<String?> onEntityChanged;
+  final ValueChanged<bool> onAiSummaryChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            SizedBox(
+              width: 200,
+              child: DropdownButtonFormField<String>(
+                value: riskValues.contains(riskRating) ? riskRating : 'All',
+                decoration: const InputDecoration(labelText: 'Risk rating', border: OutlineInputBorder()),
+                items: riskValues.map((value) => DropdownMenuItem(value: value, child: Text(value))).toList(),
+                onChanged: (value) => onRiskChanged(value ?? 'All'),
+              ),
+            ),
+            SizedBox(
+              width: 220,
+              child: DropdownButtonFormField<String>(
+                value: jurisdictionValues.contains(jurisdiction) ? jurisdiction : 'All',
+                decoration: const InputDecoration(labelText: 'Jurisdiction', border: OutlineInputBorder()),
+                items: jurisdictionValues.map((value) => DropdownMenuItem(value: value, child: Text(value))).toList(),
+                onChanged: (value) => onJurisdictionChanged(value ?? 'All'),
+              ),
+            ),
+            SizedBox(
+              width: 300,
+              child: SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'All entities', label: Text('All entities'), icon: Icon(Icons.groups_outlined)),
+                  ButtonSegment(value: 'Selected entity', label: Text('Selected entity'), icon: Icon(Icons.business_outlined)),
+                ],
+                selected: <String>{entityMode},
+                onSelectionChanged: (value) => onEntityModeChanged(value.first),
+              ),
+            ),
+            SizedBox(
+              width: 360,
+              child: DropdownButtonFormField<String>(
+                value: selectedEntityExternalId,
+                decoration: const InputDecoration(labelText: 'Entity', border: OutlineInputBorder()),
+                items: entities.map((entity) {
+                  final externalId = '${entity['external_id']}';
+                  return DropdownMenuItem(value: externalId, child: Text('$externalId · ${entity['display_name'] ?? '-'}', overflow: TextOverflow.ellipsis));
+                }).toList(),
+                onChanged: entityMode == 'Selected entity' ? onEntityChanged : null,
+              ),
+            ),
+            SizedBox(
+              width: 260,
+              child: SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('AI summary'),
+                subtitle: const Text('Local narrative'),
+                value: includeAiSummary,
+                onChanged: onAiSummaryChanged,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CompletenessCards extends StatelessWidget {
+  const _CompletenessCards({required this.data});
+  final _CompletenessViewModel data;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        _MetricCard(label: 'Entities evaluated', value: '${data.evaluatedCount}', tone: _MetricTone.neutral),
+        _MetricCard(label: 'Complete', value: '${data.completeCount}', tone: _MetricTone.good),
+        _MetricCard(label: 'Incomplete', value: '${data.incompleteCount}', tone: data.incompleteCount == 0 ? _MetricTone.good : _MetricTone.warn),
+        _MetricCard(label: 'Missing evidence items', value: '${data.missingEvidenceItems}', tone: data.missingEvidenceItems == 0 ? _MetricTone.good : _MetricTone.bad),
+      ],
+    );
+  }
+}
+
+enum _MetricTone { neutral, good, warn, bad }
+
+class _MetricCard extends StatelessWidget {
+  const _MetricCard({required this.label, required this.value, required this.tone});
+  final String label;
+  final String value;
+  final _MetricTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final colour = switch (tone) {
+      _MetricTone.good => scheme.primaryContainer,
+      _MetricTone.warn => scheme.tertiaryContainer,
+      _MetricTone.bad => scheme.errorContainer,
+      _MetricTone.neutral => scheme.surfaceContainerHighest,
+    };
+    return SizedBox(
+      width: 240,
+      child: Card(
+        color: colour,
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(value, style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 4),
+              Text(label),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AiCompletenessSummary extends StatelessWidget {
+  const _AiCompletenessSummary({required this.response});
+  final Map<String, dynamic>? response;
+
+  @override
+  Widget build(BuildContext context) {
+    final aiSummary = response?['ai_summary'] as Map<String, dynamic>?;
+    final summary = '${aiSummary?['summary'] ?? ''}'.trim();
+    final warning = '${aiSummary?['warning'] ?? ''}'.trim();
+    final text = summary.isNotEmpty ? summary : warning;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.psychology_alt_outlined),
+                const SizedBox(width: 8),
+                Expanded(child: Text('AI completeness summary', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700))),
+                if (aiSummary != null) Chip(label: Text(aiSummary['ai_used_for_summary'] == true ? 'AI' : 'Deterministic')),
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Text('Generated locally from the completeness result set. The checklist and ruleset remain the source of truth.'),
+            const SizedBox(height: 12),
+            if (text.isEmpty)
+              const Text('No summary returned for the current filters.')
+            else
+              SizedBox(
+                height: 220,
+                child: Scrollbar(
+                  thumbVisibility: true,
+                  child: SingleChildScrollView(child: SelectableText(text)),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.status});
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final normalised = status.toLowerCase();
+    final positive = normalised == 'present' || normalised == 'complete' || normalised == 'matched';
+    final colour = positive ? scheme.primaryContainer : scheme.errorContainer;
+    final textColour = positive ? scheme.onPrimaryContainer : scheme.onErrorContainer;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(borderRadius: BorderRadius.circular(999), color: colour),
+      child: Text(status, style: TextStyle(color: textColour, fontWeight: FontWeight.w700)),
+    );
+  }
+}
+
+class _CompletenessViewModel {
+  const _CompletenessViewModel({
+    required this.allEntities,
+    required this.filteredEntities,
+    required this.rows,
+    required this.evaluatedCount,
+    required this.completeCount,
+    required this.incompleteCount,
+    required this.missingEvidenceItems,
+    required this.aiSummary,
+  });
+
+  final List<Map<String, dynamic>> allEntities;
+  final List<Map<String, dynamic>> filteredEntities;
+  final List<Map<String, dynamic>> rows;
+  final int evaluatedCount;
+  final int completeCount;
+  final int incompleteCount;
+  final int missingEvidenceItems;
+  final Map<String, dynamic>? aiSummary;
 }
