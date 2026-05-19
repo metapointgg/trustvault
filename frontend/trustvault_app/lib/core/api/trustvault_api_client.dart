@@ -78,6 +78,7 @@ class TrustVaultApiClient {
   Future<Map<String, dynamic>> getExportStatus() async => _getMap('/api/v1/export/status');
   Future<Map<String, dynamic>> getRetentionReport() async => _getMap('/api/v1/retention/report');
   Future<Map<String, dynamic>> getIntegritySummary() async => _getMap('/api/v1/integrity/summary');
+  Future<Map<String, dynamic>> getExtractionSummary() async => _getMap('/api/v1/extraction/summary');
 
   Future<List<dynamic>> getCustomers({String? riskRating, String? jurisdiction, int? limit}) async {
     final response = await _dio.get<List<dynamic>>('/api/v1/customers', queryParameters: <String, dynamic>{if (riskRating != null && riskRating.isNotEmpty) 'risk_rating': riskRating, if (jurisdiction != null && jurisdiction.isNotEmpty) 'jurisdiction': jurisdiction, if (limit != null) 'limit': limit});
