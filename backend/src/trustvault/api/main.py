@@ -26,12 +26,15 @@ from trustvault.api.routes import (
     rulesets,
     settings as settings_routes,
 )
+from trustvault.api import query_summary_patch
 from trustvault.auth.local_auth import LocalAuthService
 from trustvault.db.bootstrap import initialise_database
 from trustvault.db.session import SessionLocal
 from trustvault.settings import get_settings
 
 settings = get_settings()
+
+query_summary_patch.apply(query)
 
 app = FastAPI(
     title=settings.app_name,
