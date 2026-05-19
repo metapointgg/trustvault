@@ -1,6 +1,7 @@
 import 'package:go_router/go_router.dart';
 
 import '../features/audit/audit_screen.dart';
+import '../features/categorisation/categorisation_screen.dart';
 import '../features/comparison/comparison_screen.dart';
 import '../features/completeness/completeness_screen.dart';
 import '../features/dashboard/dashboard_screen.dart';
@@ -42,6 +43,7 @@ final appRouter = GoRouter(
         GoRoute(path: '/api', redirect: (context, state) => '/search'),
         GoRoute(path: '/completeness', builder: (context, state) => const CompletenessScreen()),
         GoRoute(path: '/rulesets', builder: (context, state) => const RulesetsScreen()),
+        GoRoute(path: '/categorisation', builder: (context, state) => const CategorisationScreen()),
         GoRoute(path: '/ingestion', builder: (context, state) => const SourceFolderUploadScreen()),
         GoRoute(path: '/extraction', builder: (context, state) => const ExtractionScreen()),
         GoRoute(path: '/retention', builder: (context, state) => const RetentionScreen()),
