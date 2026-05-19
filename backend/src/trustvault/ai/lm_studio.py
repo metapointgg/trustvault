@@ -1,4 +1,5 @@
 import json
+import re
 import urllib.error
 import urllib.request
 from typing import Any
@@ -106,7 +107,7 @@ class LmStudioAiProvider(AiProvider):
         if warning:
             fallback = self._deterministic_summary(compact_evidence)
             return AiResult(text=fallback, provider="lm_studio", model=self.model, warnings=[warning, "Deterministic fallback summary returned because LM Studio rejected the prompt"])
-        return AiResult(text=self._content(payload), provider="lm_studio", model=payload.get("model", self.model))
+        return AiResult(text=self._clean_summary_text(self._content(payload)), provider="lm_studio", model=payload.get("model", self.model))
 
     def summarise_entity_profile(self, profile: dict[str, Any], question: str | None = None) -> AiResult:
         compact_profile = self._compact_entity_profile(profile)
@@ -117,15 +118,19 @@ class LmStudioAiProvider(AiProvider):
         if warning:
             fallback = self._deterministic_entity_profile_summary(compact_profile)
             return AiResult(text=fallback, provider="lm_studio", model=self.model, warnings=[warning, "Deterministic entity profile fallback returned because LM Studio rejected the prompt"])
-        return AiResult(text=self._content(payload), provider="lm_studio", model=payload.get("model", self.model))
+        return AiResult(text=self._clean_summary_text(self._content(payload)), provider="lm_studio", model=payload.get("model", self.model))
 
     def _summary_prompt(self, evidence: list[dict[str, Any]], question: str | None, *, terse: bool) -> dict[str, Any]:
         system = (
             "You write a short narrative summary for a TrustVault search results page. "
             "The evidence rows are already displayed to the user in a data grid, so do NOT reproduce the grid. "
+            "Use Entity/Entities terminology only. Never use Customer/Customers or Client/Clients. "
             "Never output a numbered list of individual evidence rows. Never list every filename, SHA-256 hash, object ID or row. "
             "Use only the supplied evidence. Do not invent facts. Entity metadata is authoritative. "
             "OCR/extracted text may contain recognition errors, so present it cautiously. "
+            "For rows where summary_type is missing_evidence, explain that the completeness rule has no matched evidence. "
+            "Do not say the entity has no files, no evidence, or no payloads unless the supplied fields explicitly prove that. "
+            "For missing_evidence rows, say which required evidence type is missing, the completeness score, and how many mandatory items are missing. "
             "Summarise the overall result set in one short paragraph followed by at most three concise bullets. "
             "Mention only high-level patterns: number of entities, main evidence categories, document types, gaps or limitations. "
             "End with: Preserved FITS evidence and payload hashes remain the source of truth."
@@ -133,8 +138,9 @@ class LmStudioAiProvider(AiProvider):
         if terse:
             system = (
                 "Summarise the TrustVault search result set in one short paragraph and at most 3 bullets. "
-                "Do not reproduce rows. Do not use numbered evidence lists. Do not include SHA-256 hashes. "
-                "Use Entity terminology. End with: Preserved FITS evidence and payload hashes remain the source of truth."
+                "Use Entity terminology only. Do not reproduce rows. Do not use numbered evidence lists. Do not include SHA-256 hashes. "
+                "For missing_evidence rows, state that the completeness rule has no matched evidence; do not claim there are no files or no payloads. "
+                "End with: Preserved FITS evidence and payload hashes remain the source of truth."
             )
         return {
             "model": self.model,
@@ -164,7 +170,7 @@ class LmStudioAiProvider(AiProvider):
             "Use only the supplied TrustVault entity profile, metadata and evidence excerpts. Do not invent facts. "
             "Treat entity metadata, object IDs, filenames, categories, document types and SHA-256 values as authoritative. "
             "OCR and extracted text may contain recognition errors, so describe excerpts as supporting evidence only. "
-            "If evidence is incomplete, missing or inconsistent, say so clearly. Use Entity terminology, not Customer terminology."
+            "If evidence is incomplete, missing or inconsistent, say so clearly. Use Entity terminology, not Customer or Client terminology."
         )
         instruction = (
             "Write a natural-language entity summary covering: 1) entity identity and risk context, 2) current FITS archive status, "
@@ -218,18 +224,31 @@ class LmStudioAiProvider(AiProvider):
         compact: list[dict[str, Any]] = []
         for row in self._deduplicate_evidence_rows(evidence)[:max_rows]:
             text = str(row.get("text_preview") or row.get("snippet") or "")
-            compact.append(
-                {
-                    "entity": row.get("entity_external_id"),
-                    "name": row.get("entity_display_name"),
-                    "file": row.get("filename"),
-                    "category": row.get("category"),
-                    "type": row.get("document_type") or row.get("object_type"),
-                    "jurisdiction": row.get("jurisdiction"),
-                    "risk": row.get("risk_rating"),
-                    "text": text[:max_text_chars],
-                }
-            )
+            compact_row = {
+                "entity": row.get("entity_external_id"),
+                "name": row.get("entity_display_name"),
+                "file": row.get("filename"),
+                "category": row.get("category"),
+                "type": row.get("document_type") or row.get("object_type"),
+                "jurisdiction": row.get("jurisdiction"),
+                "risk": row.get("risk_rating"),
+                "text": text[:max_text_chars],
+            }
+            for key in (
+                "status",
+                "summary_type",
+                "rule_key",
+                "missing_evidence_type",
+                "completeness_score",
+                "required_count",
+                "present_count",
+                "missing_count",
+                "matched_evidence_object_id",
+                "matched_filename",
+            ):
+                if row.get(key) not in (None, "", [], {}):
+                    compact_row[key] = row.get(key)
+            compact.append(compact_row)
         return compact
 
     def _deduplicate_evidence_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -239,8 +258,8 @@ class LmStudioAiProvider(AiProvider):
             entity_id = str(row.get("entity_external_id") or row.get("entity_id") or "")
             object_id = str(row.get("evidence_object_id") or row.get("object_id") or row.get("id") or "")
             filename = str(row.get("filename") or "")
-            document_type = str(row.get("document_type") or row.get("object_type") or "")
-            sha = str(row.get("sha256") or "")[:16]
+            document_type = str(row.get("document_type") or row.get("object_type") or row.get("missing_evidence_type") or "")
+            sha = str(row.get("sha256") or row.get("rule_key") or "")[:32]
             key = (entity_id.lower(), object_id.lower() if object_id else filename.lower(), document_type.lower(), sha.lower())
             if key in seen:
                 continue
@@ -251,7 +270,15 @@ class LmStudioAiProvider(AiProvider):
     def _deterministic_summary(self, evidence: list[dict[str, Any]]) -> str:
         entities = sorted({str(row.get("entity") or "") for row in evidence if row.get("entity")})
         categories = sorted({str(row.get("category") or "") for row in evidence if row.get("category")})
-        document_types = sorted({str(row.get("type") or "") for row in evidence if row.get("type")})
+        document_types = sorted({str(row.get("type") or row.get("missing_evidence_type") or "") for row in evidence if row.get("type") or row.get("missing_evidence_type")})
+        missing = [row for row in evidence if row.get("summary_type") == "missing_evidence"]
+        if missing:
+            missing_types = sorted({str(row.get("missing_evidence_type") or row.get("type") or "mandatory evidence") for row in missing})
+            lines = [f"TrustVault found {len(missing)} missing-evidence finding{'s' if len(missing) != 1 else ''} across {len(entities)} entit{'y' if len(entities) == 1 else 'ies'}."]
+            lines.append("Missing evidence types: " + ", ".join(missing_types) + ".")
+            lines.append("Use the data grid for the full completeness result and entity-level follow-up.")
+            lines.append("Preserved FITS evidence and payload hashes remain the source of truth.")
+            return "\n".join(lines)
         lines = [f"TrustVault found {len(evidence)} representative evidence rows" + (f" across {len(entities)} entit{'y' if len(entities) == 1 else 'ies'}" if entities else "") + "."]
         if categories:
             lines.append(f"Document categories represented include: {', '.join(categories[:6])}.")
@@ -291,6 +318,25 @@ class LmStudioAiProvider(AiProvider):
             lines.append(f"Integrity: status={integrity.get('overall_status')}, failed_payloads={integrity.get('failed_payload_count')}.")
         lines.append("Preserved FITS evidence and payload hashes remain the source of truth.")
         return "\n".join(lines)
+
+    def _clean_summary_text(self, text: str) -> str:
+        replacements = {
+            r"\bCustomers\b": "Entities",
+            r"\bcustomers\b": "entities",
+            r"\bCustomer\b": "Entity",
+            r"\bcustomer\b": "entity",
+            r"\bClients\b": "Entities",
+            r"\bclients\b": "entities",
+            r"\bClient\b": "Entity",
+            r"\bclient\b": "entity",
+        }
+        cleaned = text
+        for pattern, replacement in replacements.items():
+            cleaned = re.sub(pattern, replacement, cleaned)
+        cleaned = cleaned.replace("no attached files or evidence provided", "no matched evidence for the required completeness rule")
+        cleaned = cleaned.replace("no attached file or evidence submitted", "no matched evidence for the required completeness rule")
+        cleaned = cleaned.replace("no other supporting files or payloads are available", "no matched proof-of-address evidence is recorded for this completeness rule")
+        return cleaned
 
     def _looks_like_context_error(self, warning: str) -> bool:
         value = warning.lower()
