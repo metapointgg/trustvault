@@ -64,9 +64,9 @@ def update_customer_information(
     db: Session = Depends(get_database),
     current_user: CurrentUser = Depends(require_permission("customers:update")),
 ) -> dict[str, Any]:
-    entity = db.scalars(select(Entity).where((Entity.id == customer_id) | (Entity.external_id == customer_id))).first()
+    entity = db.scalars(select(Entity).where(Entity.external_id == customer_id)).first()
     if entity is None:
-        raise HTTPException(status_code=404, detail="Customer/entity not found")
+        raise HTTPException(status_code=404, detail="Customer not found")
 
     existing_metadata = entity.metadata_json or {}
     assurance_gaps = existing_metadata.get("assurance_gaps") if isinstance(existing_metadata.get("assurance_gaps"), list) else []
