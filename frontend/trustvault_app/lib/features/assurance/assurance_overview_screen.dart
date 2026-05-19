@@ -54,7 +54,7 @@ class _AssuranceOverviewScreenState extends State<AssuranceOverviewScreen> {
       case AssuranceKind.completeness:
         return 'Archive-wide required-evidence status, followed by entity drill-down.';
       case AssuranceKind.extraction:
-        return 'Archive-wide extraction coverage and confidence, followed by entity drill-down.';
+        return 'Archive-wide extraction coverage from the search index, followed by FITS entity drill-down.';
       case AssuranceKind.retention:
         return 'Archive-wide legal-hold and retention status, followed by entity drill-down.';
       case AssuranceKind.integrity:
@@ -76,42 +76,79 @@ class _AssuranceOverviewScreenState extends State<AssuranceOverviewScreen> {
   }
 
   Future<List<Map<String, dynamic>>> _loadAllEntities() async {
-    final entities = (await _apiClient.getCustomers()).cast<Map<String, dynamic>>();
-    final rows = <Map<String, dynamic>>[];
-    for (final entity in entities) {
-      try {
-        final report = await _loadReport('${entity['external_id']}');
-        rows.add(<String, dynamic>{...entity, '_report': report, ..._summaryFor(entity, report)});
-      } catch (error) {
-        rows.add(<String, dynamic>{...entity, '_report_error': '$error', 'status': 'error', 'score': 0, 'issue_count': 1});
-      }
-    }
-    return rows;
-  }
-
-  Map<String, dynamic> _summaryFor(Map<String, dynamic> entity, Map<String, dynamic> report) {
     switch (widget.kind) {
       case AssuranceKind.completeness:
-        final score = (report['score'] as num?)?.toInt() ?? 0;
-        final missing = (report['missing_count'] as num?)?.toInt() ?? 0;
-        return {'status': score >= 100 ? 'complete' : 'incomplete', 'score': score, 'issue_count': missing, 'summary': 'Missing: $missing'};
+        final summary = await _apiClient.getCompletenessSummary(limit: 1000);
+        final rows = (summary['rows'] as List<dynamic>? ?? <dynamic>[]).cast<Map<String, dynamic>>();
+        final byEntity = <String, Map<String, dynamic>>{};
+        for (final row in rows) {
+          final key = '${row['entity_external_id']}';
+          byEntity.putIfAbsent(key, () => {
+                'id': row['entity_id'],
+                'external_id': row['entity_external_id'],
+                'display_name': row['entity_display_name'],
+                'risk_rating': row['risk_rating'],
+                'jurisdiction': row['jurisdiction'],
+                'status': ((row['missing_count'] as num?)?.toInt() ?? 0) == 0 ? 'complete' : 'incomplete',
+                'score': row['completeness_score'] ?? 0,
+                'issue_count': row['missing_count'] ?? 0,
+                'summary': 'Missing: ${row['missing_count'] ?? 0}',
+              });
+        }
+        return byEntity.values.toList();
       case AssuranceKind.extraction:
-        final rows = (report['ocr_text'] as List<dynamic>? ?? <dynamic>[]).cast<Map<String, dynamic>>();
-        final lowConfidence = rows.where((row) => ((row['extraction_confidence'] as num?)?.toDouble() ?? 1) < 0.7).length;
-        final totalChars = rows.fold<int>(0, (total, row) => total + ((row['character_count'] as num?)?.toInt() ?? '${row['extracted_text'] ?? ''}'.length));
-        return {'status': rows.isEmpty ? 'no text' : lowConfidence > 0 ? 'review' : 'ok', 'score': rows.isEmpty ? 0 : 100, 'issue_count': lowConfidence, 'summary': '${rows.length} text rows · $totalChars chars'};
+        final summary = await _apiClient.getExtractionSummary();
+        return (summary['results'] as List<dynamic>? ?? <dynamic>[]).cast<Map<String, dynamic>>();
       case AssuranceKind.retention:
-        final evidence = _retentionRows(report);
-        final holds = evidence.where((row) => '${row['legal_hold_status'] ?? 'none'}'.toLowerCase() != 'none').length;
-        final deletionEligible = evidence.where((row) => row['deletion_eligible'] == true).length;
-        return {'status': holds > 0 ? 'hold' : 'ok', 'score': evidence.isEmpty ? 0 : 100, 'issue_count': holds + deletionEligible, 'summary': '$holds holds · $deletionEligible deletion eligible'};
+        final entities = (await _apiClient.getCustomers()).cast<Map<String, dynamic>>();
+        final report = await _apiClient.getRetentionReport();
+        final reportEntities = (report['entities'] as List<dynamic>? ?? <dynamic>[]).cast<Map<String, dynamic>>();
+        final entityByExternal = {for (final entity in entities) '${entity['external_id']}': entity};
+        return reportEntities.map((entry) {
+          final externalId = '${entry['entity_external_id']}';
+          final entity = entityByExternal[externalId] ?? <String, dynamic>{};
+          final evidence = (entry['evidence'] as List<dynamic>? ?? <dynamic>[]).cast<Map<String, dynamic>>();
+          final holds = evidence.where((row) => '${row['legal_hold_status'] ?? 'none'}'.toLowerCase() != 'none').length;
+          final deletionEligible = evidence.where((row) => row['deletion_eligible'] == true).length;
+          return <String, dynamic>{
+            ...entity,
+            'id': entry['entity_id'] ?? entity['id'],
+            'external_id': externalId,
+            'display_name': entity['display_name'] ?? externalId,
+            'status': holds > 0 ? 'hold' : 'ok',
+            'score': evidence.isEmpty ? 0 : 100,
+            'issue_count': holds + deletionEligible,
+            'summary': '$holds holds · $deletionEligible deletion eligible',
+          };
+        }).toList();
       case AssuranceKind.integrity:
-        final overall = '${report['overall_status'] ?? report['status'] ?? 'unknown'}';
-        final payloads = (report['payload_results'] as List<dynamic>? ?? report['payloads'] as List<dynamic>? ?? <dynamic>[]).cast<Map<String, dynamic>>();
-        final failed = payloads.where((row) => row['status'] != 'valid' && row['valid'] != true).length;
-        final missingHdus = (report['missing_required_hdus'] as List<dynamic>? ?? <dynamic>[]).length;
-        final ok = (overall == 'valid' || overall == 'success') && failed == 0 && missingHdus == 0;
-        return {'status': ok ? 'valid' : overall, 'score': ok ? 100 : 0, 'issue_count': failed + missingHdus, 'summary': '$failed failed payloads · $missingHdus missing HDUs'};
+        final entities = (await _apiClient.getCustomers()).cast<Map<String, dynamic>>();
+        final entityById = {for (final entity in entities) '${entity['id']}': entity};
+        final entityByExternal = {for (final entity in entities) '${entity['external_id']}': entity};
+        final summary = await _apiClient.getIntegritySummary();
+        final results = (summary['results'] as List<dynamic>? ?? <dynamic>[]).cast<Map<String, dynamic>>();
+        return results.map((result) {
+          final entity = entityById['${result['entity_id']}'] ?? entityByExternal['${result['entity_external_id']}'] ?? <String, dynamic>{};
+          final payloads = (result['payload_results'] as List<dynamic>? ?? <dynamic>[]).cast<Map<String, dynamic>>();
+          final failed = payloads.where((row) => row['valid'] != true).length;
+          final missingHdus = (result['missing_required_hdus'] as List<dynamic>? ?? <dynamic>[]).length;
+          final errors = (result['errors'] as List<dynamic>? ?? <dynamic>[]).length;
+          final overall = '${result['overall_status'] ?? 'unknown'}';
+          final ok = overall == 'valid' && failed == 0 && missingHdus == 0 && errors == 0;
+          return <String, dynamic>{
+            ...entity,
+            'id': result['entity_id'] ?? entity['id'],
+            'external_id': entity['external_id'] ?? result['entity_external_id'] ?? result['entity_id'],
+            'display_name': entity['display_name'] ?? result['entity_external_id'] ?? result['entity_id'] ?? '-',
+            'status': overall,
+            'score': ok ? 100 : 0,
+            'issue_count': failed + missingHdus + errors,
+            'summary': '$failed failed payloads · $missingHdus missing HDUs',
+            'container_version_id': result['container_version_id'],
+            'fits_opened': result['fits_opened'],
+            'container_hash_matches': result['container_hash_matches'],
+          };
+        }).toList();
     }
   }
 
@@ -155,11 +192,7 @@ class _AssuranceOverviewScreenState extends State<AssuranceOverviewScreen> {
         padding: const EdgeInsets.all(32),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(_title, style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 8),
-              Text(_subtitle),
-            ])),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(_title, style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)), const SizedBox(height: 8), Text(_subtitle)])),
             OutlinedButton.icon(onPressed: _refresh, icon: const Icon(Icons.refresh), label: const Text('Refresh')),
           ]),
           const SizedBox(height: 16),
@@ -172,7 +205,7 @@ class _AssuranceOverviewScreenState extends State<AssuranceOverviewScreen> {
               return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 _SummaryCards(kind: widget.kind, rows: rows),
                 const SizedBox(height: 16),
-                _AllEntitiesGrid(rows: rows, onSelected: _selectEntity),
+                _AllEntitiesGrid(kind: widget.kind, rows: rows, onSelected: _selectEntity),
                 const SizedBox(height: 16),
                 Text('Entity detail', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 8),
@@ -220,33 +253,27 @@ class _MetricCard extends StatelessWidget {
 }
 
 class _AllEntitiesGrid extends StatelessWidget {
-  const _AllEntitiesGrid({required this.rows, required this.onSelected});
+  const _AllEntitiesGrid({required this.kind, required this.rows, required this.onSelected});
+  final AssuranceKind kind;
   final List<Map<String, dynamic>> rows;
   final ValueChanged<Map<String, dynamic>> onSelected;
   @override
   Widget build(BuildContext context) {
-    return TrustVaultDataGrid(
-      title: 'All entities',
-      subtitle: 'Archive-wide assurance status by entity.',
-      rows: rows,
-      columns: const [
-        TrustVaultDataGridColumn(key: 'external_id', label: 'Entity', width: 130),
-        TrustVaultDataGridColumn(key: 'display_name', label: 'Name', width: 220),
-        TrustVaultDataGridColumn(key: 'risk_rating', label: 'Risk', width: 100),
-        TrustVaultDataGridColumn(key: 'jurisdiction', label: 'Jurisdiction', width: 140),
-        TrustVaultDataGridColumn(key: 'status', label: 'Status', width: 130),
-        TrustVaultDataGridColumn(key: 'score', label: 'Score', width: 90),
-        TrustVaultDataGridColumn(key: 'issue_count', label: 'Issues', width: 90),
-        TrustVaultDataGridColumn(key: 'summary', label: 'Summary', width: 360),
-        TrustVaultDataGridColumn(key: '_report_error', label: 'Error', width: 360, visibleByDefault: false),
-      ],
-      initialSortColumnKey: 'external_id',
-      onRowTap: onSelected,
-      exportFilename: 'trustvault-assurance-entities.csv',
-      height: 420,
-      dense: true,
-    );
+    return TrustVaultDataGrid(title: 'All entities', subtitle: 'Archive-wide assurance status by entity.', rows: rows, columns: _columns(), initialSortColumnKey: 'external_id', onRowTap: onSelected, exportFilename: 'trustvault-assurance-entities.csv', height: 420, dense: true);
   }
+
+  List<TrustVaultDataGridColumn> _columns() => [
+        const TrustVaultDataGridColumn(key: 'external_id', label: 'Entity', width: 130),
+        const TrustVaultDataGridColumn(key: 'display_name', label: 'Name', width: 220),
+        const TrustVaultDataGridColumn(key: 'risk_rating', label: 'Risk', width: 100),
+        const TrustVaultDataGridColumn(key: 'jurisdiction', label: 'Jurisdiction', width: 140),
+        const TrustVaultDataGridColumn(key: 'status', label: 'Status', width: 130),
+        const TrustVaultDataGridColumn(key: 'score', label: 'Score', width: 90),
+        const TrustVaultDataGridColumn(key: 'issue_count', label: 'Issues', width: 90),
+        const TrustVaultDataGridColumn(key: 'summary', label: 'Summary', width: 360),
+        if (kind == AssuranceKind.extraction) ...const [TrustVaultDataGridColumn(key: 'indexed_entry_count', label: 'Indexed', width: 100, visibleByDefault: false), TrustVaultDataGridColumn(key: 'text_row_count', label: 'Text rows', width: 110), TrustVaultDataGridColumn(key: 'character_count', label: 'Characters', width: 120)],
+        if (kind == AssuranceKind.integrity) ...const [TrustVaultDataGridColumn(key: 'container_version_id', label: 'Container', width: 260, visibleByDefault: false), TrustVaultDataGridColumn(key: 'fits_opened', label: 'FITS opened', width: 110), TrustVaultDataGridColumn(key: 'container_hash_matches', label: 'Hash matches', width: 130)],
+      ];
 }
 
 class _DetailPanel extends StatelessWidget {
