@@ -125,7 +125,7 @@ class TrustVaultApiClient {
   }
 
   Future<Map<String, dynamic>> updateRuleset({required String rulesetId, String? name, int? version, String? status, String? description}) async {
-    final response = await _dio.patch<Map<String, dynamic>>('/api/v1/rulesets/$rulesetId', data: <String, dynamic>{if (name != null) 'name', if (version != null) 'version', if (status != null) 'status', if (description != null) 'description'});
+    final response = await _dio.patch<Map<String, dynamic>>('/api/v1/rulesets/$rulesetId', data: <String, dynamic>{if (name != null) 'name': name, if (version != null) 'version': version, if (status != null) 'status': status, if (description != null) 'description': description});
     return response.data ?? <String, dynamic>{};
   }
 
