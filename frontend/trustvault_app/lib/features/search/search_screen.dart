@@ -213,7 +213,7 @@ class _SearchScreenState extends State<SearchScreen> {
           ],
           const SizedBox(height: 20),
           if (_error != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)))),
-          SizedBox(height: 760, child: _loading ? const Center(child: CircularProgressIndicator()) : _response == null ? const _EmptyState() : _ResultPanel(response: _response!, onOpenRow: _openRow, onPreview: _openEvidence, onJson: _showJson)),
+          SizedBox(height: 820, child: _loading ? const Center(child: CircularProgressIndicator()) : _response == null ? const _EmptyState() : _ResultPanel(response: _response!, onOpenRow: _openRow, onPreview: _openEvidence, onJson: _showJson)),
         ]),
       ),
     );
@@ -251,7 +251,7 @@ class _SearchForm extends StatelessWidget {
         SizedBox(width: 300, child: SegmentedButton<bool>(segments: const [ButtonSegment(value: false, label: Text('All entities'), icon: Icon(Icons.groups_outlined)), ButtonSegment(value: true, label: Text('Selected entity'), icon: Icon(Icons.person_search_outlined))], selected: <bool>{selectedEntityOnly}, onSelectionChanged: (value) => onSelectedEntityOnlyChanged(value.first))),
         SizedBox(width: 260, child: TextField(controller: entityController, enabled: selectedEntityOnly, decoration: const InputDecoration(labelText: 'Selected entity ID', border: OutlineInputBorder()))),
       ]),
-      SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('AI narrative summary'), subtitle: const Text('Use the configured AI provider to explain returned evidence in natural language.'), value: includeAiSummary, onChanged: onIncludeAiSummaryChanged),
+      SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('AI narrative summary'), subtitle: const Text('Shows a short narrative above the grid. The evidence grid remains the primary result.'), value: includeAiSummary, onChanged: onIncludeAiSummaryChanged),
       FilledButton.icon(onPressed: loading ? null : onSearch, icon: const Icon(Icons.search), label: const Text('Search')),
     ])));
   }
@@ -327,25 +327,76 @@ class _EntityPicker extends StatelessWidget {
   ])));
 }
 
-class _ResultPanel extends StatelessWidget {
+class _ResultPanel extends StatefulWidget {
   const _ResultPanel({required this.response, required this.onOpenRow, required this.onPreview, required this.onJson});
   final Map<String, dynamic> response;
   final Future<void> Function(Map<String, dynamic>) onOpenRow;
   final Future<void> Function(Map<String, dynamic>) onPreview;
   final void Function(String, Object) onJson;
+
+  @override
+  State<_ResultPanel> createState() => _ResultPanelState();
+}
+
+class _ResultPanelState extends State<_ResultPanel> {
+  bool _summaryExpanded = false;
+
   @override
   Widget build(BuildContext context) {
-    final result = response['result'] is Map<String, dynamic> ? response['result'] as Map<String, dynamic> : response;
+    final result = widget.response['result'] is Map<String, dynamic> ? widget.response['result'] as Map<String, dynamic> : widget.response;
     final rows = (result['results'] as List<dynamic>? ?? <dynamic>[]).whereType<Map<String, dynamic>>().toList();
-    final summary = '${(response['ai_summary'] as Map<String, dynamic>?)?['summary'] ?? ''}'.replaceAll('customers', 'entities').replaceAll('customer', 'entity');
+    final rawSummary = '${(widget.response['ai_summary'] as Map<String, dynamic>?)?['summary'] ?? ''}';
+    final summary = _normaliseSummary(rawSummary);
     return Card(child: Padding(padding: const EdgeInsets.all(20), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Wrap(spacing: 8, runSpacing: 8, children: [Chip(label: Text('Results: ${result['result_count'] ?? rows.length}')), Chip(label: Text('Source: ${response['execution_source'] ?? '-'}'))]),
-      if (summary.trim().isNotEmpty) ...[const SizedBox(height: 12), Container(width: double.infinity, padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)), child: SelectableText(summary))],
+      Wrap(spacing: 8, runSpacing: 8, children: [Chip(label: Text('Results: ${result['result_count'] ?? rows.length}')), Chip(label: Text('Source: ${widget.response['execution_source'] ?? '-'}')), Chip(label: Text('Grid rows: ${rows.length}'))]),
+      if (summary.trim().isNotEmpty) ...[
+        const SizedBox(height: 12),
+        _NarrativeSummary(summary: summary, expanded: _summaryExpanded, onToggle: () => setState(() => _summaryExpanded = !_summaryExpanded)),
+      ],
       const SizedBox(height: 12),
-      Wrap(spacing: 8, children: [OutlinedButton(onPressed: () => onJson('Structured query', response['structured_query'] ?? {}), child: const Text('Structured query')), OutlinedButton(onPressed: () => onJson('Interpretation', response['interpretation'] ?? {}), child: const Text('Interpretation')), OutlinedButton(onPressed: () => onJson('Diagnostics', result['diagnostics'] ?? {}), child: const Text('Diagnostics')), OutlinedButton(onPressed: () => onJson('Raw JSON', response), child: const Text('Raw JSON'))]),
+      Wrap(spacing: 8, children: [OutlinedButton(onPressed: () => widget.onJson('Structured query', widget.response['structured_query'] ?? {}), child: const Text('Structured query')), OutlinedButton(onPressed: () => widget.onJson('Interpretation', widget.response['interpretation'] ?? {}), child: const Text('Interpretation')), OutlinedButton(onPressed: () => widget.onJson('Diagnostics', result['diagnostics'] ?? {}), child: const Text('Diagnostics')), OutlinedButton(onPressed: () => widget.onJson('Raw JSON', widget.response), child: const Text('Raw JSON'))]),
       const SizedBox(height: 12),
-      Expanded(child: rows.isEmpty ? const Center(child: Text('No rows returned.')) : _ResultsTable(rows: rows, onOpenRow: onOpenRow, onPreview: onPreview)),
+      Expanded(child: rows.isEmpty ? const Center(child: Text('No rows returned.')) : _ResultsTable(rows: rows, onOpenRow: widget.onOpenRow, onPreview: widget.onPreview)),
     ])));
+  }
+
+  String _normaliseSummary(String value) {
+    final text = value.replaceAll('customers', 'entities').replaceAll('customer', 'entity').trim();
+    if (text.length <= 2400) return text;
+    return '${text.substring(0, 2400)}\n\n[Summary truncated in the page view. Use Raw JSON if you need the full model response.]';
+  }
+}
+
+class _NarrativeSummary extends StatelessWidget {
+  const _NarrativeSummary({required this.summary, required this.expanded, required this.onToggle});
+  final String summary;
+  final bool expanded;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxHeight = expanded ? 260.0 : 96.0;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(Icons.summarize_outlined, size: 18),
+          const SizedBox(width: 8),
+          Expanded(child: Text('AI narrative summary', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700))),
+          TextButton(onPressed: onToggle, child: Text(expanded ? 'Collapse' : 'Expand')),
+        ]),
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          constraints: BoxConstraints(maxHeight: maxHeight),
+          child: Scrollbar(
+            thumbVisibility: expanded,
+            child: SingleChildScrollView(child: SelectableText(summary)),
+          ),
+        ),
+      ]),
+    );
   }
 }
 
