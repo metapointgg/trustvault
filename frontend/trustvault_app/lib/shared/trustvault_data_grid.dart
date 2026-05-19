@@ -38,10 +38,10 @@ class TrustVaultDataGrid extends StatefulWidget {
     this.initialSortColumnKey,
     this.initialSortAscending = true,
     this.onRowTap,
-    this.actionsBuilder,
     this.exportFilename = 'trustvault-grid.csv',
     this.emptyText = 'No rows available.',
-    this.height,
+    this.height = 420,
+    this.dense = false,
   });
 
   final String title;
@@ -51,10 +51,10 @@ class TrustVaultDataGrid extends StatefulWidget {
   final String? initialSortColumnKey;
   final bool initialSortAscending;
   final ValueChanged<Map<String, dynamic>>? onRowTap;
-  final List<Widget> Function(Map<String, dynamic> row)? actionsBuilder;
   final String exportFilename;
   final String emptyText;
-  final double? height;
+  final double height;
+  final bool dense;
 
   @override
   State<TrustVaultDataGrid> createState() => _TrustVaultDataGridState();
@@ -94,6 +94,13 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
 
   List<TrustVaultDataGridColumn> get _visibleColumns => widget.columns.where((column) => _visibleColumnKeys.contains(column.key)).toList();
 
+  TrustVaultDataGridColumn? _columnByKey(String key) {
+    for (final column in widget.columns) {
+      if (column.key == key) return column;
+    }
+    return null;
+  }
+
   List<Map<String, dynamic>> get _filteredRows {
     final rows = widget.rows.where((row) {
       if (_search.isEmpty) return true;
@@ -102,7 +109,7 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
     }).toList();
     final sortKey = _sortColumnKey;
     if (sortKey == null) return rows;
-    final sortColumn = widget.columns.where((column) => column.key == sortKey).firstOrNull;
+    final sortColumn = _columnByKey(sortKey);
     if (sortColumn == null) return rows;
     rows.sort((a, b) {
       final comparison = _compareValues(sortColumn.value(a), sortColumn.value(b));
@@ -216,6 +223,9 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
             child: SingleChildScrollView(
               child: DataTable(
                 showCheckboxColumn: false,
+                dataRowMinHeight: widget.dense ? 36 : null,
+                dataRowMaxHeight: widget.dense ? 54 : null,
+                headingRowHeight: widget.dense ? 44 : null,
                 sortColumnIndex: sortColumnIndex >= 0 ? sortColumnIndex : null,
                 sortAscending: _sortAscending,
                 columns: visibleColumns.map((column) {
@@ -226,9 +236,6 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
                     final content = column.cellBuilder?.call(row) ?? Text('${column.value(row) ?? '-'}', overflow: TextOverflow.ellipsis, maxLines: 2);
                     return DataCell(SizedBox(width: column.width, child: content));
                   }).toList();
-                  if (widget.actionsBuilder != null) {
-                    // Actions should be supplied as a normal configured column rather than injected implicitly.
-                  }
                   return DataRow(onSelectChanged: widget.onRowTap == null ? null : (_) => widget.onRowTap!(row), cells: cells);
                 }).toList(),
               ),
@@ -268,7 +275,7 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
               decoration: const InputDecoration(border: OutlineInputBorder(), prefixIcon: Icon(Icons.search), labelText: 'Search this grid'),
             ),
             const SizedBox(height: 12),
-            SizedBox(height: widget.height ?? 420, child: Scrollbar(thumbVisibility: true, child: table)),
+            SizedBox(height: widget.height, child: Scrollbar(thumbVisibility: true, child: table)),
           ],
         ),
       ),
