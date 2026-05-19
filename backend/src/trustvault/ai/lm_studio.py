@@ -63,7 +63,7 @@ class LmStudioAiProvider(AiProvider):
                                 "Onboarding is a lifecycle snapshot, not a document type.",
                                 "For onboarding, set snapshot_id to ONBOARDING and do not set document_types to ONBOARDING.",
                                 "If an entity ID is not present in the user query or selected context, keep entity_external_id null.",
-                                "Selected-customer evidence search uses direct_fits; archive/cohort search uses fits_index.",
+                                "Selected-entity evidence search uses direct_fits; archive/cohort search uses fits_index.",
                             ],
                             "output_schema": {
                                 "scope": "archive|entity",
@@ -98,26 +98,39 @@ class LmStudioAiProvider(AiProvider):
         return AiResult(text=content, provider="lm_studio", model=payload.get("model", self.model), data=data)
 
     def summarise_evidence(self, evidence: list[dict], question: str | None = None) -> AiResult:
-        compact_evidence = self._compact_evidence(evidence, max_rows=6, max_text_chars=360)
+        compact_evidence = self._compact_evidence(evidence, max_rows=10, max_text_chars=420)
         payload, warning = self._post_chat(self._summary_prompt(compact_evidence, question, terse=False))
         if warning and self._looks_like_context_error(warning):
-            tiny_evidence = self._compact_evidence(evidence, max_rows=4, max_text_chars=180)
+            tiny_evidence = self._compact_evidence(evidence, max_rows=5, max_text_chars=220)
             payload, warning = self._post_chat(self._summary_prompt(tiny_evidence, question, terse=True))
         if warning:
             fallback = self._deterministic_summary(compact_evidence)
             return AiResult(text=fallback, provider="lm_studio", model=self.model, warnings=[warning, "Deterministic fallback summary returned because LM Studio rejected the prompt"])
         return AiResult(text=self._content(payload), provider="lm_studio", model=payload.get("model", self.model))
 
+    def summarise_entity_profile(self, profile: dict[str, Any], question: str | None = None) -> AiResult:
+        compact_profile = self._compact_entity_profile(profile)
+        payload, warning = self._post_chat(self._entity_profile_prompt(compact_profile, question, terse=False))
+        if warning and self._looks_like_context_error(warning):
+            compact_profile = self._compact_entity_profile(profile, max_evidence=8, max_excerpt_chars=180)
+            payload, warning = self._post_chat(self._entity_profile_prompt(compact_profile, question, terse=True))
+        if warning:
+            fallback = self._deterministic_entity_profile_summary(compact_profile)
+            return AiResult(text=fallback, provider="lm_studio", model=self.model, warnings=[warning, "Deterministic entity profile fallback returned because LM Studio rejected the prompt"])
+        return AiResult(text=self._content(payload), provider="lm_studio", model=payload.get("model", self.model))
+
     def _summary_prompt(self, evidence: list[dict[str, Any]], question: str | None, *, terse: bool) -> dict[str, Any]:
         system = (
-            "You are TrustVault's evidence assistant. Summarise only the provided evidence rows. "
-            "Do not invent facts. Mention entities, document categories, document types, jurisdictions, risk ratings and key facts. "
+            "You summarise retrieved financial-services evidence for compliance and operations users. "
+            "Use only the supplied evidence rows. Do not invent facts. Entity metadata is authoritative. "
+            "OCR/extracted text may contain recognition errors, so present it cautiously. "
+            "Mention entities, document categories, document types, jurisdictions, risk ratings and key evidence themes. "
             "End with: Preserved FITS evidence and payload hashes remain the source of truth."
         )
         if terse:
             system = (
                 "Summarise the provided TrustVault evidence rows in one short paragraph and 3 bullets. "
-                "Do not invent facts. End with: Preserved FITS evidence and payload hashes remain the source of truth."
+                "Do not invent facts. Use Entity terminology. End with: Preserved FITS evidence and payload hashes remain the source of truth."
             )
         return {
             "model": self.model,
@@ -126,11 +139,68 @@ class LmStudioAiProvider(AiProvider):
                 {"role": "user", "content": json.dumps({"question": question, "rows": evidence}, default=str, separators=(",", ":"))},
             ],
             "temperature": 0.1,
+            "max_tokens": 900,
+        }
+
+    def _entity_profile_prompt(self, profile: dict[str, Any], question: str | None, *, terse: bool) -> dict[str, Any]:
+        system = (
+            "You summarise preserved financial-services evidence for compliance and operations users. "
+            "Use only the supplied TrustVault entity profile, metadata and evidence excerpts. Do not invent facts. "
+            "Treat entity metadata, object IDs, filenames, categories, document types and SHA-256 values as authoritative. "
+            "OCR and extracted text may contain recognition errors, so describe excerpts as supporting evidence only. "
+            "If evidence is incomplete, missing or inconsistent, say so clearly. Use Entity terminology, not Customer terminology."
+        )
+        instruction = (
+            "Write a natural-language entity summary covering: 1) entity identity and risk context, 2) current FITS archive status, "
+            "3) evidence coverage by category/document type, 4) notable evidence examples, 5) completeness, retention, extraction and integrity observations, "
+            "and 6) limitations or follow-up actions. Do not list every row. End with a source-of-truth note."
+        )
+        if terse:
+            instruction = "Write one concise paragraph and up to five bullets covering risk context, archive status, evidence coverage, gaps and limitations. End with a source-of-truth note."
+        return {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": json.dumps({"question": question, "entity_profile": profile, "instruction": instruction}, default=str, separators=(",", ":"))},
+            ],
+            "temperature": 0.1,
+            "max_tokens": 1200,
+        }
+
+    def _compact_entity_profile(self, profile: dict[str, Any], *, max_evidence: int = 16, max_excerpt_chars: int = 320) -> dict[str, Any]:
+        evidence_rows = list(profile.get("representative_evidence") or [])[:max_evidence]
+        compact_evidence = []
+        for row in evidence_rows:
+            text = str(row.get("text_preview") or row.get("snippet") or row.get("text_content") or "")[:max_excerpt_chars]
+            compact_evidence.append(
+                {
+                    "object_id": row.get("evidence_object_id") or row.get("object_id") or row.get("id"),
+                    "filename": row.get("filename"),
+                    "category": row.get("category"),
+                    "document_type": row.get("document_type") or row.get("object_type"),
+                    "source_system": row.get("source_system"),
+                    "retention_class": row.get("retention_class"),
+                    "legal_hold_status": row.get("legal_hold_status"),
+                    "sha256": row.get("sha256"),
+                    "excerpt": text,
+                }
+            )
+        return {
+            "entity": profile.get("entity") or {},
+            "container": profile.get("container") or {},
+            "evidence_count": profile.get("evidence_count"),
+            "counts_by_category": profile.get("counts_by_category") or {},
+            "counts_by_document_type": profile.get("counts_by_document_type") or {},
+            "completeness": profile.get("completeness") or {},
+            "retention": profile.get("retention") or {},
+            "extraction": profile.get("extraction") or {},
+            "integrity": profile.get("integrity") or {},
+            "representative_evidence": compact_evidence,
         }
 
     def _compact_evidence(self, evidence: list[dict], *, max_rows: int, max_text_chars: int) -> list[dict[str, Any]]:
         compact: list[dict[str, Any]] = []
-        for row in evidence[:max_rows]:
+        for row in self._deduplicate_evidence_rows(evidence)[:max_rows]:
             text = str(row.get("text_preview") or row.get("snippet") or "")
             compact.append(
                 {
@@ -147,6 +217,22 @@ class LmStudioAiProvider(AiProvider):
             )
         return compact
 
+    def _deduplicate_evidence_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        unique: list[dict[str, Any]] = []
+        seen: set[tuple[str, str, str, str]] = set()
+        for row in rows:
+            entity_id = str(row.get("entity_external_id") or row.get("entity_id") or "")
+            object_id = str(row.get("evidence_object_id") or row.get("object_id") or row.get("id") or "")
+            filename = str(row.get("filename") or "")
+            document_type = str(row.get("document_type") or row.get("object_type") or "")
+            sha = str(row.get("sha256") or "")[:16]
+            key = (entity_id.lower(), object_id.lower() if object_id else filename.lower(), document_type.lower(), sha.lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(row)
+        return unique
+
     def _deterministic_summary(self, evidence: list[dict[str, Any]]) -> str:
         entities = sorted({str(row.get("entity") or "") for row in evidence if row.get("entity")})
         names = sorted({str(row.get("name") or "") for row in evidence if row.get("name")})
@@ -155,13 +241,44 @@ class LmStudioAiProvider(AiProvider):
         facts = [str(row.get("text")) for row in evidence if row.get("text")][:3]
         lines = [f"TrustVault found {len(evidence)} evidence rows" + (f" across {', '.join(entities)}" if entities else "") + "."]
         if names:
-            lines.append(f"Customers: {', '.join(names)}.")
+            lines.append(f"Entities: {', '.join(names)}.")
         if categories:
             lines.append(f"Document categories include: {', '.join(categories)}.")
         if files:
             lines.append(f"Representative files include: {', '.join(files[:6])}.")
         if facts:
             lines.append("Key evidence text includes: " + " | ".join(facts)[:700] + ".")
+        lines.append("Preserved FITS evidence and payload hashes remain the source of truth.")
+        return "\n".join(lines)
+
+    def _deterministic_entity_profile_summary(self, profile: dict[str, Any]) -> str:
+        entity = profile.get("entity") or {}
+        container = profile.get("container") or {}
+        completeness = profile.get("completeness") or {}
+        retention = profile.get("retention") or {}
+        extraction = profile.get("extraction") or {}
+        integrity = profile.get("integrity") or {}
+        evidence = profile.get("representative_evidence") or []
+        lines = [
+            f"Entity {entity.get('external_id') or entity.get('entity_external_id') or '-'} ({entity.get('display_name') or entity.get('entity_display_name') or '-'}) is recorded with risk rating {entity.get('risk_rating') or '-'} and jurisdiction {entity.get('jurisdiction') or '-'}.",
+            f"The entity has {profile.get('evidence_count') or 0} evidence object(s) in the current evidence profile.",
+        ]
+        if container:
+            lines.append(f"Current FITS container status: version={container.get('version_number') or '-'}, storage_uri={container.get('storage_uri') or '-'}, sha256={container.get('sha256') or '-'}." )
+        if profile.get("counts_by_category"):
+            lines.append("Evidence categories: " + ", ".join(f"{key} ({value})" for key, value in (profile.get("counts_by_category") or {}).items()) + ".")
+        if profile.get("counts_by_document_type"):
+            lines.append("Document types: " + ", ".join(f"{key} ({value})" for key, value in (profile.get("counts_by_document_type") or {}).items()) + ".")
+        if evidence:
+            lines.append("Representative files: " + ", ".join(str(row.get("filename") or row.get("object_id") or "-") for row in evidence[:6]) + ".")
+        if completeness:
+            lines.append(f"Completeness: score={completeness.get('score')}, missing={completeness.get('missing_count')}.")
+        if retention:
+            lines.append(f"Retention/legal hold: legal_holds={retention.get('legal_hold_count')}, deletion_eligible={retention.get('deletion_eligible_count')}.")
+        if extraction:
+            lines.append(f"Extraction: text_rows={extraction.get('text_row_count')}, character_count={extraction.get('character_count')}.")
+        if integrity:
+            lines.append(f"Integrity: status={integrity.get('overall_status')}, failed_payloads={integrity.get('failed_payload_count')}.")
         lines.append("Preserved FITS evidence and payload hashes remain the source of truth.")
         return "\n".join(lines)
 
