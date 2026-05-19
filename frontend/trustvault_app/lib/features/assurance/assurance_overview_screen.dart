@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/trustvault_api_client.dart';
 import '../../shared/customer_selector_card.dart';
 import '../../shared/selected_customer.dart';
+import '../../shared/trustvault_data_grid.dart';
 
 enum AssuranceKind { completeness, extraction, retention, integrity }
 
@@ -148,11 +149,11 @@ class _AssuranceOverviewScreenState extends State<AssuranceOverviewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    return Scrollbar(
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(32),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(_title, style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
@@ -162,28 +163,27 @@ class _AssuranceOverviewScreenState extends State<AssuranceOverviewScreen> {
             OutlinedButton.icon(onPressed: _refresh, icon: const Icon(Icons.refresh), label: const Text('Refresh')),
           ]),
           const SizedBox(height: 16),
-          Expanded(
-            child: FutureBuilder<List<Map<String, dynamic>>>(
-              future: _allFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-                if (snapshot.hasError) return Center(child: Text('Unable to load assurance summary: ${snapshot.error}'));
-                final rows = snapshot.data ?? <Map<String, dynamic>>[];
-                return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  _SummaryCards(kind: widget.kind, rows: rows),
-                  const SizedBox(height: 16),
-                  Expanded(flex: 2, child: _AllEntitiesGrid(rows: rows, onSelected: _selectEntity)),
-                  const SizedBox(height: 16),
-                  Text('Entity detail', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 8),
-                  CustomerSelectorCard(title: 'Search by entity name / ID', subtitle: 'Select an entity to view assurance detail.', onChanged: (_) => _loadDetail()),
-                  const SizedBox(height: 12),
-                  Expanded(flex: 2, child: _DetailPanel(kind: widget.kind, future: _detailFuture, loadedFor: _loadedFor, retentionRows: _retentionRows)),
-                ]);
-              },
-            ),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _allFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) return const SizedBox(height: 520, child: Center(child: CircularProgressIndicator()));
+              if (snapshot.hasError) return SizedBox(height: 520, child: Center(child: Text('Unable to load assurance summary: ${snapshot.error}')));
+              final rows = snapshot.data ?? <Map<String, dynamic>>[];
+              return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                _SummaryCards(kind: widget.kind, rows: rows),
+                const SizedBox(height: 16),
+                _AllEntitiesGrid(rows: rows, onSelected: _selectEntity),
+                const SizedBox(height: 16),
+                Text('Entity detail', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                CustomerSelectorCard(title: 'Search by entity name / ID', subtitle: 'Select an entity to view assurance detail.', onChanged: (_) => _loadDetail()),
+                const SizedBox(height: 12),
+                _DetailPanel(kind: widget.kind, future: _detailFuture, loadedFor: _loadedFor, retentionRows: _retentionRows),
+                const SizedBox(height: 32),
+              ]);
+            },
           ),
-        ],
+        ]),
       ),
     );
   }
@@ -225,10 +225,27 @@ class _AllEntitiesGrid extends StatelessWidget {
   final ValueChanged<Map<String, dynamic>> onSelected;
   @override
   Widget build(BuildContext context) {
-    return Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal, child: SingleChildScrollView(child: DataTable(showCheckboxColumn: false, columns: const [DataColumn(label: Text('Entity')), DataColumn(label: Text('Name')), DataColumn(label: Text('Risk')), DataColumn(label: Text('Jurisdiction')), DataColumn(label: Text('Status')), DataColumn(label: Text('Score')), DataColumn(label: Text('Issues')), DataColumn(label: Text('Summary')), DataColumn(label: Text('Actions'))], rows: rows.map((row) {
-      final score = (row['score'] as num?)?.toInt() ?? 0;
-      return DataRow(onSelectChanged: (_) => onSelected(row), color: (score >= 100 && row['status'] != 'hold') ? null : WidgetStatePropertyAll(Theme.of(context).colorScheme.errorContainer.withValues(alpha: 0.22)), cells: [DataCell(Text('${row['external_id'] ?? row['entity_external_id'] ?? '-'}')), DataCell(SizedBox(width: 220, child: Text('${row['display_name'] ?? row['entity_display_name'] ?? '-'}', overflow: TextOverflow.ellipsis))), DataCell(Text('${row['risk_rating'] ?? '-'}')), DataCell(Text('${row['jurisdiction'] ?? '-'}')), DataCell(Text('${row['status'] ?? '-'}')), DataCell(Text('$score%')), DataCell(Text('${row['issue_count'] ?? '-'}')), DataCell(SizedBox(width: 300, child: Text('${row['summary'] ?? row['_report_error'] ?? '-'}', overflow: TextOverflow.ellipsis))), DataCell(TextButton(onPressed: () => onSelected(row), child: const Text('View detail')))]);
-    }).toList()))));
+    return TrustVaultDataGrid(
+      title: 'All entities',
+      subtitle: 'Archive-wide assurance status by entity.',
+      rows: rows,
+      columns: const [
+        TrustVaultDataGridColumn(key: 'external_id', label: 'Entity', width: 130),
+        TrustVaultDataGridColumn(key: 'display_name', label: 'Name', width: 220),
+        TrustVaultDataGridColumn(key: 'risk_rating', label: 'Risk', width: 100),
+        TrustVaultDataGridColumn(key: 'jurisdiction', label: 'Jurisdiction', width: 140),
+        TrustVaultDataGridColumn(key: 'status', label: 'Status', width: 130),
+        TrustVaultDataGridColumn(key: 'score', label: 'Score', width: 90),
+        TrustVaultDataGridColumn(key: 'issue_count', label: 'Issues', width: 90),
+        TrustVaultDataGridColumn(key: 'summary', label: 'Summary', width: 360),
+        TrustVaultDataGridColumn(key: '_report_error', label: 'Error', width: 360, visibleByDefault: false),
+      ],
+      initialSortColumnKey: 'external_id',
+      onRowTap: onSelected,
+      exportFilename: 'trustvault-assurance-entities.csv',
+      height: 420,
+      dense: true,
+    );
   }
 }
 
@@ -240,13 +257,13 @@ class _DetailPanel extends StatelessWidget {
   final List<Map<String, dynamic>> Function(Map<String, dynamic>) retentionRows;
   @override
   Widget build(BuildContext context) {
-    if (future == null) return const Center(child: Text('Select an entity to view detail.'));
+    if (future == null) return const SizedBox(height: 260, child: Center(child: Text('Select an entity to view detail.')));
     return FutureBuilder<Map<String, dynamic>>(
       key: ValueKey('assurance-${kind.name}-$loadedFor'),
       future: future,
       builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-        if (snapshot.hasError) return Center(child: Text('Unable to load detail: ${snapshot.error}'));
+        if (snapshot.connectionState != ConnectionState.done) return const SizedBox(height: 360, child: Center(child: CircularProgressIndicator()));
+        if (snapshot.hasError) return SizedBox(height: 360, child: Center(child: Text('Unable to load detail: ${snapshot.error}')));
         final data = snapshot.data ?? <String, dynamic>{};
         switch (kind) {
           case AssuranceKind.completeness:
@@ -267,21 +284,21 @@ class _CompletenessTable extends StatelessWidget {
   const _CompletenessTable({required this.rows});
   final List<Map<String, dynamic>> rows;
   @override
-  Widget build(BuildContext context) => _DataCard(columns: const ['Status', 'Rule', 'Category', 'Document type', 'Matched evidence', 'Matched filename'], rows: rows.map((row) => ['${row['status'] ?? '-'}', '${row['rule_key'] ?? '-'}', '${row['category'] ?? '-'}', '${row['document_type'] ?? '-'}', '${row['matched_evidence_object_id'] ?? '-'}', '${row['matched_filename'] ?? '-'}']).toList());
+  Widget build(BuildContext context) => TrustVaultDataGrid(title: 'Completeness detail', rows: rows, columns: const [TrustVaultDataGridColumn(key: 'status', label: 'Status', width: 120), TrustVaultDataGridColumn(key: 'rule_key', label: 'Rule', width: 220), TrustVaultDataGridColumn(key: 'category', label: 'Category', width: 160), TrustVaultDataGridColumn(key: 'document_type', label: 'Document type', width: 180), TrustVaultDataGridColumn(key: 'matched_evidence_object_id', label: 'Matched evidence', width: 300), TrustVaultDataGridColumn(key: 'matched_filename', label: 'Matched filename', width: 260)], exportFilename: 'trustvault-completeness-detail.csv', height: 420, dense: true);
 }
 
 class _ExtractionTable extends StatelessWidget {
   const _ExtractionTable({required this.rows});
   final List<Map<String, dynamic>> rows;
   @override
-  Widget build(BuildContext context) => _DataCard(columns: const ['Filename', 'Method', 'Confidence', 'Characters', 'Text preview'], rows: rows.map((row) => ['${row['filename'] ?? row['object_id'] ?? '-'}', '${row['extraction_method'] ?? '-'}', '${((row['extraction_confidence'] as num?)?.toDouble() ?? 0) * 100}%', '${row['character_count'] ?? '-'}', _preview('${row['extracted_text'] ?? ''}')]).toList());
+  Widget build(BuildContext context) => TrustVaultDataGrid(title: 'Extraction detail', rows: rows.map((row) => {...row, 'preview': _preview('${row['extracted_text'] ?? ''}')}).toList(), columns: const [TrustVaultDataGridColumn(key: 'filename', label: 'Filename', width: 260), TrustVaultDataGridColumn(key: 'extraction_method', label: 'Method', width: 140), TrustVaultDataGridColumn(key: 'extraction_confidence', label: 'Confidence', width: 110), TrustVaultDataGridColumn(key: 'character_count', label: 'Characters', width: 110), TrustVaultDataGridColumn(key: 'preview', label: 'Text preview', width: 520), TrustVaultDataGridColumn(key: 'object_id', label: 'Object', width: 300, visibleByDefault: false)], exportFilename: 'trustvault-extraction-detail.csv', height: 420, dense: true);
 }
 
 class _RetentionTable extends StatelessWidget {
   const _RetentionTable({required this.rows});
   final List<Map<String, dynamic>> rows;
   @override
-  Widget build(BuildContext context) => _DataCard(columns: const ['Filename', 'Category', 'Document type', 'Retention class', 'Retention until', 'Legal hold', 'Deletion eligible'], rows: rows.map((row) => ['${row['filename'] ?? '-'}', '${row['category'] ?? '-'}', '${row['document_type'] ?? '-'}', '${row['retention_class'] ?? '-'}', '${row['retention_until'] ?? '-'}', '${row['legal_hold_status'] ?? 'none'}', row['deletion_eligible'] == true ? 'Yes' : 'No']).toList());
+  Widget build(BuildContext context) => TrustVaultDataGrid(title: 'Legal hold & retention detail', rows: rows, columns: const [TrustVaultDataGridColumn(key: 'filename', label: 'Filename', width: 260), TrustVaultDataGridColumn(key: 'category', label: 'Category', width: 160), TrustVaultDataGridColumn(key: 'document_type', label: 'Document type', width: 180), TrustVaultDataGridColumn(key: 'retention_class', label: 'Retention class', width: 170), TrustVaultDataGridColumn(key: 'retention_until', label: 'Retention until', width: 150), TrustVaultDataGridColumn(key: 'legal_hold_status', label: 'Legal hold', width: 130), TrustVaultDataGridColumn(key: 'deletion_eligible', label: 'Deletion eligible', width: 150), TrustVaultDataGridColumn(key: 'object_id', label: 'Object', width: 300, visibleByDefault: false)], exportFilename: 'trustvault-retention-detail.csv', height: 420, dense: true);
 }
 
 class _IntegrityTable extends StatelessWidget {
@@ -292,18 +309,7 @@ class _IntegrityTable extends StatelessWidget {
     final payloads = (data['payload_results'] as List<dynamic>? ?? data['payloads'] as List<dynamic>? ?? <dynamic>[]).cast<Map<String, dynamic>>();
     final failed = payloads.where((row) => row['status'] != 'valid' && row['valid'] != true).toList();
     final rows = failed.isEmpty ? payloads : failed;
-    return _DataCard(columns: const ['Payload', 'Filename', 'Status', 'Expected SHA-256', 'Actual SHA-256'], rows: rows.map((row) => ['${row['hdu_name'] ?? row['payload_hdu'] ?? '-'}', '${row['filename'] ?? '-'}', '${row['status'] ?? row['valid'] ?? '-'}', '${row['expected_sha256'] ?? row['sha256'] ?? '-'}', '${row['actual_sha256'] ?? '-'}']).toList());
-  }
-}
-
-class _DataCard extends StatelessWidget {
-  const _DataCard({required this.columns, required this.rows});
-  final List<String> columns;
-  final List<List<String>> rows;
-  @override
-  Widget build(BuildContext context) {
-    if (rows.isEmpty) return const Center(child: Text('No detail rows available.'));
-    return Card(child: SingleChildScrollView(scrollDirection: Axis.horizontal, child: SingleChildScrollView(child: DataTable(columns: columns.map((column) => DataColumn(label: Text(column))).toList(), rows: rows.map((row) => DataRow(cells: row.map((cell) => DataCell(SizedBox(width: cell.length > 80 ? 360 : null, child: Text(cell, overflow: TextOverflow.ellipsis, maxLines: 2)))).toList())).toList()))));
+    return TrustVaultDataGrid(title: 'Integrity detail', rows: rows, columns: const [TrustVaultDataGridColumn(key: 'hdu_name', label: 'Payload', width: 200), TrustVaultDataGridColumn(key: 'payload_hdu', label: 'Payload HDU', width: 200, visibleByDefault: false), TrustVaultDataGridColumn(key: 'filename', label: 'Filename', width: 260), TrustVaultDataGridColumn(key: 'status', label: 'Status', width: 120), TrustVaultDataGridColumn(key: 'valid', label: 'Valid', width: 100), TrustVaultDataGridColumn(key: 'expected_sha256', label: 'Expected SHA-256', width: 320), TrustVaultDataGridColumn(key: 'actual_sha256', label: 'Actual SHA-256', width: 320), TrustVaultDataGridColumn(key: 'sha256', label: 'SHA-256', width: 320, visibleByDefault: false)], exportFilename: 'trustvault-integrity-detail.csv', height: 420, dense: true);
   }
 }
 
