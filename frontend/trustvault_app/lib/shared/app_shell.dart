@@ -121,6 +121,7 @@ class _SideNavigation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isAdmin = AuthController.instance.isAdmin;
     return Material(
       color: Theme.of(context).colorScheme.surface,
       child: ListView(
@@ -166,9 +167,10 @@ class _SideNavigation extends StatelessWidget {
           ),
           _NavGroup(
             title: 'Operations',
-            initiallyExpanded: _isInGroup(['/ingestion', '/export'], currentPath),
+            initiallyExpanded: _isInGroup(['/categorisation', '/ingestion', '/export'], currentPath),
             children: [
-              _NavItem(path: '/ingestion', label: 'Ingestion', icon: Icons.upload_file_outlined, currentPath: currentPath),
+              _NavItem(path: '/categorisation', label: 'Categorisation', icon: Icons.category_outlined, currentPath: currentPath),
+              if (isAdmin) _NavItem(path: '/ingestion', label: 'Ingestion', icon: Icons.upload_file_outlined, currentPath: currentPath),
               _NavItem(path: '/export', label: 'Export', icon: Icons.file_download_outlined, currentPath: currentPath),
             ],
           ),
