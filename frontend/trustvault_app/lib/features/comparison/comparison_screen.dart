@@ -13,7 +13,8 @@ class ComparisonScreen extends StatefulWidget {
 
 class _ComparisonScreenState extends State<ComparisonScreen> {
   final TrustVaultApiClient _apiClient = TrustVaultApiClient();
-  final TextEditingController _queryController = TextEditingController(text: 'passport');
+  final TextEditingController _queryController =
+      TextEditingController(text: 'passport');
   Future<Map<String, dynamic>>? _future;
   String? _loadedFor;
 
@@ -41,7 +42,8 @@ class _ComparisonScreenState extends State<ComparisonScreen> {
       return;
     }
     final query = _queryController.text.trim();
-    final nextFuture = _apiClient.compareFitsVsDatabase(externalId, query: query.isEmpty ? null : query);
+    final nextFuture = _apiClient.compareFitsVsDatabase(externalId,
+        query: query.isEmpty ? null : query);
     setState(() {
       _future = nextFuture;
       _loadedFor = externalId;
@@ -61,9 +63,14 @@ class _ComparisonScreenState extends State<ComparisonScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Comparison', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
+                    Text('Comparison',
+                        style: Theme.of(context)
+                            .textTheme
+                            .displaySmall
+                            ?.copyWith(fontWeight: FontWeight.w700)),
                     const SizedBox(height: 8),
-                    const Text('Compares one customer FITS archive with database and index projections.'),
+                    const Text(
+                        'Compares one customer FITS archive with database and index projections.'),
                   ],
                 ),
               ),
@@ -71,34 +78,51 @@ class _ComparisonScreenState extends State<ComparisonScreen> {
                 width: 240,
                 child: TextField(
                   controller: _queryController,
-                  decoration: const InputDecoration(labelText: 'Search parity query', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(
+                      labelText: 'Search parity query',
+                      border: OutlineInputBorder()),
                   onSubmitted: (_) => _load(),
                 ),
               ),
               const SizedBox(width: 12),
-              OutlinedButton.icon(onPressed: _load, icon: const Icon(Icons.compare_arrows), label: const Text('Compare')),
+              OutlinedButton.icon(
+                  onPressed: _load,
+                  icon: const Icon(Icons.compare_arrows),
+                  label: const Text('Compare')),
             ],
           ),
           const SizedBox(height: 16),
           CustomerSelectorCard(
             title: 'Customer to compare',
-            subtitle: 'The comparison checks this customer FITS archive against the database/index projections.',
+            subtitle:
+                'The comparison checks this customer FITS archive against the database/index projections.',
             onChanged: (_) => _load(),
           ),
           const SizedBox(height: 24),
           Expanded(
             child: _future == null
-                ? const Center(child: Text('Select a customer to compare FITS and projections.'))
+                ? const Center(
+                    child: Text(
+                        'Select a customer to compare FITS and projections.'))
                 : FutureBuilder<Map<String, dynamic>>(
                     key: ValueKey('comparison-$_loadedFor'),
                     future: _future,
                     builder: (context, snapshot) {
-                      if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-                      if (snapshot.hasError) return Center(child: Text('Unable to compare: ${snapshot.error}'));
+                      if (snapshot.connectionState != ConnectionState.done)
+                        return const Center(child: CircularProgressIndicator());
+                      if (snapshot.hasError)
+                        return Center(
+                            child:
+                                Text('Unable to compare: ${snapshot.error}'));
                       final data = snapshot.data ?? <String, dynamic>{};
-                      final checks = (data['checks'] as List<dynamic>? ?? <dynamic>[]).cast<Map<String, dynamic>>();
-                      final failures = checks.where((row) => row['status'] == 'fail').length;
-                      final warnings = checks.where((row) => row['status'] == 'warning').length;
+                      final checks =
+                          (data['checks'] as List<dynamic>? ?? <dynamic>[])
+                              .cast<Map<String, dynamic>>();
+                      final failures =
+                          checks.where((row) => row['status'] == 'fail').length;
+                      final warnings = checks
+                          .where((row) => row['status'] == 'warning')
+                          .length;
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -106,10 +130,18 @@ class _ComparisonScreenState extends State<ComparisonScreen> {
                             spacing: 8,
                             runSpacing: 8,
                             children: [
-                              _StatusChip(label: 'Checks: ${checks.length}', good: true),
-                              _StatusChip(label: 'Failures: $failures', good: failures == 0),
-                              _StatusChip(label: 'Warnings: $warnings', good: warnings == 0),
-                              Chip(label: Text('Container: ${data['container_version_id'] ?? '-'}')),
+                              _StatusChip(
+                                  label: 'Checks: ${checks.length}',
+                                  good: true),
+                              _StatusChip(
+                                  label: 'Failures: $failures',
+                                  good: failures == 0),
+                              _StatusChip(
+                                  label: 'Warnings: $warnings',
+                                  good: warnings == 0),
+                              Chip(
+                                  label: Text(
+                                      'Container: ${data['container_version_id'] ?? '-'}')),
                             ],
                           ),
                           const SizedBox(height: 16),
@@ -127,11 +159,21 @@ class _ComparisonScreenState extends State<ComparisonScreen> {
                                     final status = '${row['status'] ?? '-'}';
                                     final good = status == 'pass';
                                     return DataRow(
-                                      color: good ? null : WidgetStatePropertyAll(Theme.of(context).colorScheme.errorContainer.withValues(alpha: 0.35)),
+                                      color: good
+                                          ? null
+                                          : WidgetStatePropertyAll(
+                                              Theme.of(context)
+                                                  .colorScheme
+                                                  .errorContainer
+                                                  .withValues(alpha: 0.35)),
                                       cells: [
-                                        DataCell(_StatusPill(label: status, positive: good)),
+                                        DataCell(_StatusPill(
+                                            label: status, positive: good)),
                                         DataCell(Text('${row['name'] ?? '-'}')),
-                                        DataCell(SizedBox(width: 520, child: SelectableText(_details(row)))),
+                                        DataCell(SizedBox(
+                                            width: 520,
+                                            child:
+                                                SelectableText(_details(row)))),
                                       ],
                                     );
                                   }).toList(),
@@ -150,9 +192,13 @@ class _ComparisonScreenState extends State<ComparisonScreen> {
   }
 
   String _details(Map<String, dynamic> row) {
-    final copy = Map<String, dynamic>.from(row)..remove('name')..remove('status');
+    final copy = Map<String, dynamic>.from(row)
+      ..remove('name')
+      ..remove('status');
     if (copy.isEmpty) return '-';
-    return copy.entries.map((entry) => '${entry.key}: ${entry.value}').join('\n');
+    return copy.entries
+        .map((entry) => '${entry.key}: ${entry.value}')
+        .join('\n');
   }
 }
 
@@ -166,7 +212,8 @@ class _StatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Chip(
-      avatar: Icon(good ? Icons.check_circle : Icons.error, size: 18, color: good ? scheme.primary : scheme.error),
+      avatar: Icon(good ? Icons.check_circle : Icons.error,
+          size: 18, color: good ? scheme.primary : scheme.error),
       label: Text(label),
     );
   }
@@ -187,7 +234,11 @@ class _StatusPill extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         color: positive ? scheme.primaryContainer : scheme.errorContainer,
       ),
-      child: Text(label, style: TextStyle(color: positive ? scheme.onPrimaryContainer : scheme.onErrorContainer)),
+      child: Text(label,
+          style: TextStyle(
+              color: positive
+                  ? scheme.onPrimaryContainer
+                  : scheme.onErrorContainer)),
     );
   }
 }

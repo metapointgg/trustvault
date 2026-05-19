@@ -37,16 +37,26 @@ class _CategorisationScreenState extends State<CategorisationScreen> {
     final customers = responses[2] as List<dynamic>;
     setState(() {
       _rows = evidence.whereType<Map<String, dynamic>>().toList();
-      _documentTypes = (settings['document_types'] as List<dynamic>? ?? <dynamic>[]).whereType<Map<String, dynamic>>().toList();
-      _customerGapRows = customers.whereType<Map<String, dynamic>>().where(_hasOpenCustomerInformationGap).toList();
-      _selectedIds.removeWhere((id) => !_rows.any((row) => row['evidence_object_id'] == id));
+      _documentTypes =
+          (settings['document_types'] as List<dynamic>? ?? <dynamic>[])
+              .whereType<Map<String, dynamic>>()
+              .toList();
+      _customerGapRows = customers
+          .whereType<Map<String, dynamic>>()
+          .where(_hasOpenCustomerInformationGap)
+          .toList();
+      _selectedIds.removeWhere(
+          (id) => !_rows.any((row) => row['evidence_object_id'] == id));
     });
   }
 
   bool _hasOpenCustomerInformationGap(Map<String, dynamic> row) {
-    final metadata = row['metadata_json'] as Map<String, dynamic>? ?? <String, dynamic>{};
+    final metadata =
+        row['metadata_json'] as Map<String, dynamic>? ?? <String, dynamic>{};
     final gaps = metadata['assurance_gaps'] as List<dynamic>? ?? <dynamic>[];
-    return gaps.whereType<Map<String, dynamic>>().any((gap) => gap['gap_key'] == 'customer_information_missing' && gap['status'] != 'resolved');
+    return gaps.whereType<Map<String, dynamic>>().any((gap) =>
+        gap['gap_key'] == 'customer_information_missing' &&
+        gap['status'] != 'resolved');
   }
 
   Future<void> _refresh() async {
@@ -59,7 +69,9 @@ class _CategorisationScreenState extends State<CategorisationScreen> {
 
   Future<void> _showSetDialog() async {
     if (_selectedIds.isEmpty) return;
-    String? selectedDocumentType = _documentTypes.isNotEmpty ? '${_documentTypes.first['document_type']}' : null;
+    String? selectedDocumentType = _documentTypes.isNotEmpty
+        ? '${_documentTypes.first['document_type']}'
+        : null;
     final result = await showDialog<String>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -79,30 +91,46 @@ class _CategorisationScreenState extends State<CategorisationScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Update ${_selectedIds.length} selected evidence item(s).'),
+                  Text(
+                      'Update ${_selectedIds.length} selected evidence item(s).'),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
                     value: selectedDocumentType,
-                    decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Document type'),
+                    decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Document type'),
                     items: _documentTypes
                         .map((item) => DropdownMenuItem<String>(
                               value: '${item['document_type']}',
                               child: Text('${item['document_type']}'),
                             ))
                         .toList(),
-                    onChanged: (value) => setDialogState(() => selectedDocumentType = value),
+                    onChanged: (value) =>
+                        setDialogState(() => selectedDocumentType = value),
                   ),
                   const SizedBox(height: 12),
                   if (selectedMapping != null)
-                    Text('Category will be set automatically to: ${selectedMapping['category']}', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
+                    Text(
+                        'Category will be set automatically to: ${selectedMapping['category']}',
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodyMedium
+                            ?.copyWith(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 8),
-                  const Text('Category is controlled in Settings and is not manually set here.'),
+                  const Text(
+                      'Category is controlled in Settings and is not manually set here.'),
                 ],
               ),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-              FilledButton(onPressed: selectedDocumentType == null ? null : () => Navigator.of(context).pop(selectedDocumentType), child: const Text('Set')),
+              TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel')),
+              FilledButton(
+                  onPressed: selectedDocumentType == null
+                      ? null
+                      : () => Navigator.of(context).pop(selectedDocumentType),
+                  child: const Text('Set')),
             ],
           );
         },
@@ -120,9 +148,11 @@ class _CategorisationScreenState extends State<CategorisationScreen> {
       _error = null;
     });
     try {
-      final response = await _apiClient.updateEvidenceClassification(evidenceObjectIds: _selectedIds.toList(), documentType: documentType);
+      final response = await _apiClient.updateEvidenceClassification(
+          evidenceObjectIds: _selectedIds.toList(), documentType: documentType);
       setState(() {
-        _message = 'Updated ${response['updated_count'] ?? _selectedIds.length} evidence item(s) to $documentType.';
+        _message =
+            'Updated ${response['updated_count'] ?? _selectedIds.length} evidence item(s) to $documentType.';
         _selectedIds.clear();
         _saving = false;
         _loadFuture = _load();
@@ -136,10 +166,14 @@ class _CategorisationScreenState extends State<CategorisationScreen> {
   }
 
   Future<void> _showCustomerInfoDialog(Map<String, dynamic> customer) async {
-    final displayNameController = TextEditingController(text: '${customer['display_name'] ?? ''}');
-    final entityTypeController = TextEditingController(text: '${customer['entity_type'] ?? 'customer'}');
-    final jurisdictionController = TextEditingController(text: '${customer['jurisdiction'] ?? ''}');
-    final riskRatingController = TextEditingController(text: '${customer['risk_rating'] ?? ''}');
+    final displayNameController =
+        TextEditingController(text: '${customer['display_name'] ?? ''}');
+    final entityTypeController =
+        TextEditingController(text: '${customer['entity_type'] ?? 'customer'}');
+    final jurisdictionController =
+        TextEditingController(text: '${customer['jurisdiction'] ?? ''}');
+    final riskRatingController =
+        TextEditingController(text: '${customer['risk_rating'] ?? ''}');
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (context) => AlertDialog(
@@ -149,24 +183,40 @@ class _CategorisationScreenState extends State<CategorisationScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: displayNameController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Display name')),
+              TextField(
+                  controller: displayNameController,
+                  decoration: const InputDecoration(
+                      border: OutlineInputBorder(), labelText: 'Display name')),
               const SizedBox(height: 12),
-              TextField(controller: entityTypeController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Entity type')),
+              TextField(
+                  controller: entityTypeController,
+                  decoration: const InputDecoration(
+                      border: OutlineInputBorder(), labelText: 'Entity type')),
               const SizedBox(height: 12),
-              TextField(controller: jurisdictionController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Jurisdiction')),
+              TextField(
+                  controller: jurisdictionController,
+                  decoration: const InputDecoration(
+                      border: OutlineInputBorder(), labelText: 'Jurisdiction')),
               const SizedBox(height: 12),
-              TextField(controller: riskRatingController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Risk rating')),
+              TextField(
+                  controller: riskRatingController,
+                  decoration: const InputDecoration(
+                      border: OutlineInputBorder(), labelText: 'Risk rating')),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel')),
           FilledButton(
             onPressed: () {
               if (displayNameController.text.trim().isEmpty) return;
               Navigator.of(context).pop(<String, dynamic>{
                 'display_name': displayNameController.text.trim(),
-                'entity_type': entityTypeController.text.trim().isEmpty ? 'customer' : entityTypeController.text.trim(),
+                'entity_type': entityTypeController.text.trim().isEmpty
+                    ? 'customer'
+                    : entityTypeController.text.trim(),
                 'jurisdiction': jurisdictionController.text.trim(),
                 'risk_rating': riskRatingController.text.trim(),
                 'status': customer['status'] ?? 'active',
@@ -188,16 +238,19 @@ class _CategorisationScreenState extends State<CategorisationScreen> {
     await _updateCustomerInformation('${customer['id']}', result);
   }
 
-  Future<void> _updateCustomerInformation(String customerId, Map<String, dynamic> data) async {
+  Future<void> _updateCustomerInformation(
+      String customerId, Map<String, dynamic> data) async {
     setState(() {
       _saving = true;
       _message = null;
       _error = null;
     });
     try {
-      final response = await _apiClient.updateCustomerInformation(customerId: customerId, data: data);
+      final response = await _apiClient.updateCustomerInformation(
+          customerId: customerId, data: data);
       setState(() {
-        _message = 'Resolved customer information gap for ${response['entity_external_id'] ?? customerId}.';
+        _message =
+            'Resolved customer information gap for ${response['entity_external_id'] ?? customerId}.';
         _saving = false;
         _loadFuture = _load();
       });
@@ -244,18 +297,34 @@ class _CategorisationScreenState extends State<CategorisationScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Categorisation', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
+                      Text('Categorisation',
+                          style: Theme.of(context)
+                              .textTheme
+                              .displaySmall
+                              ?.copyWith(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 8),
-                      const Text('Review uncategorised evidence, set Document Type and resolve Customer Information assurance gaps.'),
+                      const Text(
+                          'Review uncategorised evidence, set Document Type and resolve Customer Information assurance gaps.'),
                     ],
                   ),
                 ),
-                OutlinedButton.icon(onPressed: _refresh, icon: const Icon(Icons.refresh), label: const Text('Refresh')),
+                OutlinedButton.icon(
+                    onPressed: _refresh,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Refresh')),
                 const SizedBox(width: 12),
                 FilledButton.icon(
-                  onPressed: _saving || _selectedIds.isEmpty ? null : _showSetDialog,
-                  icon: _saving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.edit_outlined),
-                  label: Text(_selectedIds.isEmpty ? 'Select evidence' : 'Set (${_selectedIds.length})'),
+                  onPressed:
+                      _saving || _selectedIds.isEmpty ? null : _showSetDialog,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.edit_outlined),
+                  label: Text(_selectedIds.isEmpty
+                      ? 'Select evidence'
+                      : 'Set (${_selectedIds.length})'),
                 ),
               ],
             ),
@@ -267,12 +336,21 @@ class _CategorisationScreenState extends State<CategorisationScreen> {
               future: _loadFuture,
               builder: (context, snapshot) {
                 if (snapshot.connectionState != ConnectionState.done) {
-                  return const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()));
+                  return const Center(
+                      child: Padding(
+                          padding: EdgeInsets.all(48),
+                          child: CircularProgressIndicator()));
                 }
-                if (snapshot.hasError) return _Banner(message: 'Unable to load categorisation data: ${snapshot.error}', positive: false);
+                if (snapshot.hasError)
+                  return _Banner(
+                      message:
+                          'Unable to load categorisation data: ${snapshot.error}',
+                      positive: false);
                 return Column(
                   children: [
-                    _CustomerInformationGapTable(rows: _customerGapRows, onResolve: _showCustomerInfoDialog),
+                    _CustomerInformationGapTable(
+                        rows: _customerGapRows,
+                        onResolve: _showCustomerInfoDialog),
                     const SizedBox(height: 16),
                     _CategorisationTable(
                       rows: _rows,
@@ -292,7 +370,8 @@ class _CategorisationScreenState extends State<CategorisationScreen> {
 }
 
 class _CustomerInformationGapTable extends StatelessWidget {
-  const _CustomerInformationGapTable({required this.rows, required this.onResolve});
+  const _CustomerInformationGapTable(
+      {required this.rows, required this.onResolve});
 
   final List<Map<String, dynamic>> rows;
   final void Function(Map<String, dynamic> row) onResolve;
@@ -304,12 +383,21 @@ class _CustomerInformationGapTable extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            Expanded(child: Text('Customer Information assurance gaps', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700))),
+            Expanded(
+                child: Text('Customer Information assurance gaps',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(fontWeight: FontWeight.w700))),
             Chip(label: Text('${rows.length} open')),
           ]),
           const SizedBox(height: 12),
           if (rows.isEmpty)
-            const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No open Customer Information assurance gaps.')))
+            const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(
+                    child:
+                        Text('No open Customer Information assurance gaps.')))
           else
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -327,7 +415,9 @@ class _CustomerInformationGapTable extends StatelessWidget {
                     DataCell(Text('${row['display_name'] ?? ''}')),
                     DataCell(Text('${row['jurisdiction'] ?? ''}')),
                     DataCell(Text('${row['risk_rating'] ?? ''}')),
-                    DataCell(FilledButton(onPressed: () => onResolve(row), child: const Text('Resolve'))),
+                    DataCell(FilledButton(
+                        onPressed: () => onResolve(row),
+                        child: const Text('Resolve'))),
                   ]);
                 }).toList(),
               ),
@@ -339,7 +429,11 @@ class _CustomerInformationGapTable extends StatelessWidget {
 }
 
 class _CategorisationTable extends StatelessWidget {
-  const _CategorisationTable({required this.rows, required this.selectedIds, required this.onToggleRow, required this.onToggleAll});
+  const _CategorisationTable(
+      {required this.rows,
+      required this.selectedIds,
+      required this.onToggleRow,
+      required this.onToggleAll});
 
   final List<Map<String, dynamic>> rows;
   final Set<String> selectedIds;
@@ -357,19 +451,30 @@ class _CategorisationTable extends StatelessWidget {
           children: [
             Row(
               children: [
-                Expanded(child: Text('Uncategorised evidence', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700))),
+                Expanded(
+                    child: Text('Uncategorised evidence',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(fontWeight: FontWeight.w700))),
                 Chip(label: Text('${rows.length} rows')),
               ],
             ),
             const SizedBox(height: 12),
             if (rows.isEmpty)
-              const Padding(padding: EdgeInsets.all(32), child: Center(child: Text('No uncategorised evidence found.')))
+              const Padding(
+                  padding: EdgeInsets.all(32),
+                  child:
+                      Center(child: Text('No uncategorised evidence found.')))
             else
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: DataTable(
                   columns: [
-                    DataColumn(label: Checkbox(value: allSelected, onChanged: (value) => onToggleAll(value == true))),
+                    DataColumn(
+                        label: Checkbox(
+                            value: allSelected,
+                            onChanged: (value) => onToggleAll(value == true))),
                     const DataColumn(label: Text('Entity')),
                     const DataColumn(label: Text('Filename')),
                     const DataColumn(label: Text('Current document type')),
@@ -384,13 +489,21 @@ class _CategorisationTable extends StatelessWidget {
                     return DataRow(
                       selected: selected,
                       cells: [
-                        DataCell(Checkbox(value: selected, onChanged: (value) => onToggleRow(id, value == true))),
+                        DataCell(Checkbox(
+                            value: selected,
+                            onChanged: (value) =>
+                                onToggleRow(id, value == true))),
                         DataCell(Text('${row['entity_external_id'] ?? ''}')),
-                        DataCell(SizedBox(width: 260, child: Text('${row['filename'] ?? row['source_path'] ?? ''}', overflow: TextOverflow.ellipsis))),
+                        DataCell(SizedBox(
+                            width: 260,
+                            child: Text(
+                                '${row['filename'] ?? row['source_path'] ?? ''}',
+                                overflow: TextOverflow.ellipsis))),
                         DataCell(Text('${row['document_type'] ?? ''}')),
                         DataCell(Text('${row['category'] ?? ''}')),
                         DataCell(Text('${row['classification_status'] ?? ''}')),
-                        DataCell(Text('${row['classification_confidence'] ?? ''}')),
+                        DataCell(
+                            Text('${row['classification_confidence'] ?? ''}')),
                         DataCell(Text('${row['classification_source'] ?? ''}')),
                       ],
                     );
@@ -417,8 +530,14 @@ class _Banner extends StatelessWidget {
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: positive ? scheme.primaryContainer : scheme.errorContainer, borderRadius: BorderRadius.circular(12)),
-      child: Text(message, style: TextStyle(color: positive ? scheme.onPrimaryContainer : scheme.onErrorContainer)),
+      decoration: BoxDecoration(
+          color: positive ? scheme.primaryContainer : scheme.errorContainer,
+          borderRadius: BorderRadius.circular(12)),
+      child: Text(message,
+          style: TextStyle(
+              color: positive
+                  ? scheme.onPrimaryContainer
+                  : scheme.onErrorContainer)),
     );
   }
 }

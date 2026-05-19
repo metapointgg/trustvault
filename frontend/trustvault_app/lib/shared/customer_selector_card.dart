@@ -42,7 +42,8 @@ class _CustomerSelectorCardState extends State<CustomerSelectorCard> {
     });
   }
 
-  Map<String, dynamic>? _findEntity(List<dynamic> entities, String? externalId) {
+  Map<String, dynamic>? _findEntity(
+      List<dynamic> entities, String? externalId) {
     for (final item in entities) {
       final entity = item as Map<String, dynamic>;
       if (entity['external_id']?.toString() == externalId) return entity;
@@ -59,15 +60,20 @@ class _CustomerSelectorCardState extends State<CustomerSelectorCard> {
           future: _future,
           builder: (context, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) {
-              return const SizedBox(height: 56, child: Center(child: LinearProgressIndicator()));
+              return const SizedBox(
+                  height: 56, child: Center(child: LinearProgressIndicator()));
             }
             if (snapshot.hasError) {
               return Row(
                 children: [
-                  Icon(Icons.error_outline, color: Theme.of(context).colorScheme.error),
+                  Icon(Icons.error_outline,
+                      color: Theme.of(context).colorScheme.error),
                   const SizedBox(width: 12),
-                  Expanded(child: Text('Unable to load entities: ${snapshot.error}')),
-                  IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
+                  Expanded(
+                      child:
+                          Text('Unable to load entities: ${snapshot.error}')),
+                  IconButton(
+                      onPressed: _refresh, icon: const Icon(Icons.refresh)),
                 ],
               );
             }
@@ -77,21 +83,30 @@ class _CustomerSelectorCardState extends State<CustomerSelectorCard> {
                 children: [
                   const Icon(Icons.business_outlined),
                   const SizedBox(width: 12),
-                  const Expanded(child: Text('No entities available. Upload a source folder to begin.')),
-                  IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
+                  const Expanded(
+                      child: Text(
+                          'No entities available. Upload a source folder to begin.')),
+                  IconButton(
+                      onPressed: _refresh, icon: const Icon(Icons.refresh)),
                 ],
               );
             }
             final current = SelectedCustomerController.selected.value;
-            if (current == null || _findEntity(entities, current['external_id']?.toString()) == null) {
-              SelectedCustomerController.select(entities.first as Map<String, dynamic>);
+            if (current == null ||
+                _findEntity(entities, current['external_id']?.toString()) ==
+                    null) {
+              SelectedCustomerController.select(
+                  entities.first as Map<String, dynamic>);
             }
             return ValueListenableBuilder<Map<String, dynamic>?>(
               valueListenable: SelectedCustomerController.selected,
               builder: (context, selected, _) {
                 final selectedExternalId = selected?['external_id']?.toString();
-                final selectedValue = _findEntity(entities, selectedExternalId)?['external_id']?.toString() ??
-                    (entities.first as Map<String, dynamic>)['external_id']?.toString();
+                final selectedValue =
+                    _findEntity(entities, selectedExternalId)?['external_id']
+                            ?.toString() ??
+                        (entities.first as Map<String, dynamic>)['external_id']
+                            ?.toString();
                 return Row(
                   children: [
                     const Icon(Icons.business_outlined),
@@ -100,7 +115,11 @@ class _CustomerSelectorCardState extends State<CustomerSelectorCard> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(widget.title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                          Text(widget.title,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w700)),
                           const SizedBox(height: 4),
                           Text(widget.subtitle),
                         ],
@@ -111,10 +130,12 @@ class _CustomerSelectorCardState extends State<CustomerSelectorCard> {
                       width: 360,
                       child: DropdownButtonFormField<String>(
                         value: selectedValue,
-                        decoration: const InputDecoration(labelText: 'Entity', border: OutlineInputBorder()),
+                        decoration: const InputDecoration(
+                            labelText: 'Entity', border: OutlineInputBorder()),
                         items: entities.map((item) {
                           final entity = item as Map<String, dynamic>;
-                          final label = '${entity['display_name'] ?? entity['external_id']} (${entity['external_id']})';
+                          final label =
+                              '${entity['display_name'] ?? entity['external_id']} (${entity['external_id']})';
                           return DropdownMenuItem<String>(
                             value: entity['external_id']?.toString(),
                             child: Text(label, overflow: TextOverflow.ellipsis),
@@ -127,7 +148,10 @@ class _CustomerSelectorCardState extends State<CustomerSelectorCard> {
                         },
                       ),
                     ),
-                    IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh), tooltip: 'Refresh entities'),
+                    IconButton(
+                        onPressed: _refresh,
+                        icon: const Icon(Icons.refresh),
+                        tooltip: 'Refresh entities'),
                   ],
                 );
               },

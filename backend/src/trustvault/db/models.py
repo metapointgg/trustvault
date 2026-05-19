@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,7 +25,7 @@ class EvidenceObject(Base):
     __tablename__ = "evidence_objects"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    entity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entities.id"), index=True, nullable=False)
     object_type: Mapped[str] = mapped_column(String(100), nullable=False)
     source_system: Mapped[str] = mapped_column(String(150), nullable=False)
     storage_uri: Mapped[str] = mapped_column(Text, nullable=False)
@@ -40,7 +40,7 @@ class EntityContainerVersion(Base):
     __table_args__ = (UniqueConstraint("entity_id", "version_number", name="uq_entity_container_version"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    entity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entities.id"), index=True, nullable=False)
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="current")
     storage_uri: Mapped[str] = mapped_column(Text, nullable=False)
@@ -57,8 +57,8 @@ class FitsIndexEntry(Base):
     __tablename__ = "fits_index_entries"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
-    container_version_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    entity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entities.id"), index=True, nullable=False)
+    container_version_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entity_container_versions.id"), index=True, nullable=False)
     evidence_object_id: Mapped[str | None] = mapped_column(String(100), index=True, nullable=True)
     hdu_name: Mapped[str] = mapped_column(String(100), nullable=False)
     filename: Mapped[str | None] = mapped_column(String(300), nullable=True)
@@ -98,7 +98,7 @@ class RulesetRule(Base):
     __tablename__ = "ruleset_rules"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    ruleset_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    ruleset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("rulesets.id"), index=True, nullable=False)
     rule_key: Mapped[str] = mapped_column(String(200), nullable=False)
     category: Mapped[str] = mapped_column(String(100), nullable=False)
     document_type: Mapped[str] = mapped_column(String(150), nullable=False)
@@ -113,9 +113,9 @@ class CompletenessRun(Base):
     __tablename__ = "completeness_runs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
-    ruleset_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    container_version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    entity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entities.id"), index=True, nullable=False)
+    ruleset_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("rulesets.id"), nullable=True)
+    container_version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("entity_container_versions.id"), nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="completed")
     score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     required_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -129,8 +129,8 @@ class CompletenessResult(Base):
     __tablename__ = "completeness_results"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
-    entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("completeness_runs.id"), index=True, nullable=False)
+    entity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entities.id"), index=True, nullable=False)
     rule_key: Mapped[str] = mapped_column(String(200), nullable=False)
     category: Mapped[str] = mapped_column(String(100), nullable=False)
     document_type: Mapped[str] = mapped_column(String(150), nullable=False)
@@ -156,7 +156,7 @@ class ExtractionEvent(Base):
     __tablename__ = "extraction_events"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    entity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entities.id"), index=True, nullable=False)
     evidence_object_id: Mapped[str | None] = mapped_column(String(100), index=True, nullable=True)
     extraction_type: Mapped[str] = mapped_column(String(100), nullable=False)
     provider: Mapped[str] = mapped_column(String(100), nullable=False, default="none")

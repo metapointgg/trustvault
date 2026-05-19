@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from trustvault.audit.events import JOB_SUBMITTED
 from trustvault.audit.logger import AuditLogger
 from trustvault.api.dependencies import get_audit_logger, get_database
+from trustvault.auth.dependencies import require_permission
+from trustvault.auth.models import CurrentUser
 from trustvault.db.models import Job
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
@@ -54,13 +56,14 @@ def create_job(
     request: JobCreateRequest,
     db: Session = Depends(get_database),
     audit_logger: AuditLogger = Depends(get_audit_logger),
+    current_user: CurrentUser = Depends(require_permission("settings:read")),
 ) -> JobResponse:
     correlation_id = str(uuid.uuid4())
     job = Job(
         job_type=request.job_type,
         status="queued",
         payload=request.payload,
-        created_by_user_id=request.created_by_user_id,
+        created_by_user_id=request.created_by_user_id or current_user.subject,
         correlation_id=correlation_id,
     )
     db.add(job)
@@ -69,7 +72,7 @@ def create_job(
 
     audit_logger.log(
         JOB_SUBMITTED,
-        user_id=request.created_by_user_id,
+        user_id=request.created_by_user_id or current_user.subject,
         correlation_id=correlation_id,
         job_id=job.id,
         metadata={"job_type": request.job_type},
@@ -78,13 +81,21 @@ def create_job(
 
 
 @router.get("", response_model=list[JobResponse])
-def list_jobs(db: Session = Depends(get_database), limit: int = 50) -> list[JobResponse]:
+def list_jobs(
+    db: Session = Depends(get_database),
+    limit: int = 50,
+    current_user: CurrentUser = Depends(require_permission("settings:read")),
+) -> list[JobResponse]:
     jobs = db.scalars(select(Job).order_by(Job.created_at.desc()).limit(limit)).all()
     return [serialise_job(job) for job in jobs]
 
 
 @router.get("/{job_id}", response_model=JobResponse)
-def get_job(job_id: str, db: Session = Depends(get_database)) -> JobResponse:
+def get_job(
+    job_id: str,
+    db: Session = Depends(get_database),
+    current_user: CurrentUser = Depends(require_permission("settings:read")),
+) -> JobResponse:
     try:
         parsed_id = uuid.UUID(job_id)
     except ValueError as exc:
@@ -97,7 +108,11 @@ def get_job(job_id: str, db: Session = Depends(get_database)) -> JobResponse:
 
 
 @router.post("/{job_id}/complete", response_model=JobResponse)
-def complete_job(job_id: str, db: Session = Depends(get_database)) -> JobResponse:
+def complete_job(
+    job_id: str,
+    db: Session = Depends(get_database),
+    current_user: CurrentUser = Depends(require_permission("settings:read")),
+) -> JobResponse:
     job = db.get(Job, uuid.UUID(job_id))
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")

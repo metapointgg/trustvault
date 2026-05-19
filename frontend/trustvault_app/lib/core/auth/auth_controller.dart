@@ -6,9 +6,12 @@ class AuthSession {
   final String accessToken;
   final Map<String, dynamic> user;
 
-  String get displayName => '${user['display_name'] ?? user['email'] ?? 'User'}';
+  String get displayName =>
+      '${user['display_name'] ?? user['email'] ?? 'User'}';
   String get email => '${user['email'] ?? ''}';
-  List<String> get roles => (user['roles'] as List<dynamic>? ?? <dynamic>[]).map((role) => '$role').toList();
+  List<String> get roles => (user['roles'] as List<dynamic>? ?? <dynamic>[])
+      .map((role) => '$role')
+      .toList();
   bool get isAdmin => roles.contains('Admin');
 }
 
@@ -25,7 +28,8 @@ class AuthController extends ChangeNotifier {
   bool get isAuthenticated => _session != null;
   bool get isAdmin => _session?.isAdmin ?? false;
 
-  void setSession({required String accessToken, required Map<String, dynamic> user}) {
+  void setSession(
+      {required String accessToken, required Map<String, dynamic> user}) {
     _session = AuthSession(accessToken: accessToken, user: user);
     notifyListeners();
   }

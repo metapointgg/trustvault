@@ -7,10 +7,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from trustvault.api.dependencies import get_database, require_admin
+from trustvault.auth.dependencies import require_permission
 from trustvault.core.feature_services import TrustVaultFeatureService
 from trustvault.db.models import Ruleset, RulesetRule, User
 
-router = APIRouter(prefix="/api/v1/rulesets", tags=["rulesets"])
+router = APIRouter(
+    prefix="/api/v1/rulesets",
+    tags=["rulesets"],
+    dependencies=[Depends(require_permission("customers:read"))],
+)
 
 
 class RulesetCreateRequest(BaseModel):
@@ -34,6 +39,7 @@ class RuleCreateRequest(BaseModel):
     category: str = Field(min_length=1, max_length=100)
     document_type: str = Field(min_length=1, max_length=150)
     required: bool = True
+    applies_to_entity_types: list[str] = Field(default_factory=list)
     applies_when_json: dict[str, Any] = Field(default_factory=dict)
     max_age_days: int | None = Field(default=None, ge=1)
     metadata_json: dict[str, Any] = Field(default_factory=dict)
@@ -44,6 +50,7 @@ class RuleUpdateRequest(BaseModel):
     category: str | None = Field(default=None, min_length=1, max_length=100)
     document_type: str | None = Field(default=None, min_length=1, max_length=150)
     required: bool | None = None
+    applies_to_entity_types: list[str] | None = None
     applies_when_json: dict[str, Any] | None = None
     max_age_days: int | None = Field(default=None, ge=1)
     metadata_json: dict[str, Any] | None = None
@@ -105,7 +112,11 @@ def create_rule(ruleset_id: str, request: RuleCreateRequest, db: Session = Depen
     ruleset = db.get(Ruleset, uuid.UUID(ruleset_id))
     if ruleset is None:
         raise HTTPException(status_code=404, detail="Ruleset not found")
-    rule = RulesetRule(ruleset_id=ruleset.id, **request.model_dump())
+    payload = request.model_dump(exclude={"applies_to_entity_types"})
+    if request.applies_to_entity_types:
+        payload["applies_when_json"] = {**payload.get("applies_when_json", {}), "entity_types": request.applies_to_entity_types}
+        payload["metadata_json"] = {**payload.get("metadata_json", {}), "applies_to_entity_types": request.applies_to_entity_types}
+    rule = RulesetRule(ruleset_id=ruleset.id, **payload)
     db.add(rule)
     db.commit()
     return TrustVaultFeatureService(db).ruleset_detail(ruleset_id)
@@ -119,6 +130,10 @@ def update_rule(ruleset_id: str, rule_id: str, request: RuleUpdateRequest, db: S
     if rule is None:
         raise HTTPException(status_code=404, detail="Ruleset rule not found")
     updates = request.model_dump(exclude_unset=True)
+    applies_to_entity_types = updates.pop("applies_to_entity_types", None)
+    if applies_to_entity_types is not None:
+        updates["applies_when_json"] = {**(rule.applies_when_json or {}), "entity_types": applies_to_entity_types}
+        updates["metadata_json"] = {**(rule.metadata_json or {}), "applies_to_entity_types": applies_to_entity_types}
     for key, value in updates.items():
         setattr(rule, key, value)
     db.commit()

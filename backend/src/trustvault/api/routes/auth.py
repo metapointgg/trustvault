@@ -2,7 +2,6 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from trustvault.api.dependencies import get_current_user, get_database, require_admin
@@ -20,6 +19,7 @@ class LoginRequest(BaseModel):
 class CreateUserRequest(BaseModel):
     email: str = Field(min_length=3)
     display_name: str = Field(min_length=1)
+    verifier: str = Field(min_length=8)
     roles: list[str] = Field(default_factory=list)
     status: str = "active"
 
@@ -60,22 +60,13 @@ def list_users(_: User = Depends(require_admin), db: Session = Depends(get_datab
 
 @router.post("/users")
 def create_user(request: CreateUserRequest, _: User = Depends(require_admin), db: Session = Depends(get_database)) -> dict[str, Any]:
-    email = _normalise_email(request.email)
-    existing = db.scalars(select(User).where(User.email == email)).first()
-    if existing is not None:
-        raise HTTPException(status_code=409, detail="User email already exists")
-    user = User(
-        external_subject=f"local:{email}",
-        email=email,
+    return LocalAuthService(db).create_user(
+        email=_normalise_email(request.email),
         display_name=request.display_name,
-        status=request.status,
-        roles=LocalAuthService(db)._normalise_roles(request.roles),
-        metadata_json={"identity_provider": "local", "activation_pending": True},
+        password=request.verifier,
+        roles=request.roles,
+        status_value=request.status,
     )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return public_user(user)
 
 
 @router.patch("/users/{user_id}")

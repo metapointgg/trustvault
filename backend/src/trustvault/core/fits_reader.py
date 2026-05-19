@@ -132,14 +132,13 @@ class FitsContainerReader:
             return {"query": query, "result_count": 0, "results": []}
 
         entity: Entity | None = None
-        statement = select(FitsIndexEntry).order_by(FitsIndexEntry.created_at.desc()).limit(500)
+        statement = select(FitsIndexEntry).order_by(FitsIndexEntry.created_at.desc())
         if entity_id_or_external_id:
             entity = self._get_entity(entity_id_or_external_id)
             statement = (
                 select(FitsIndexEntry)
                 .where(FitsIndexEntry.entity_id == entity.id)
                 .order_by(FitsIndexEntry.created_at.desc())
-                .limit(500)
             )
 
         rows = self.db.scalars(statement).all()

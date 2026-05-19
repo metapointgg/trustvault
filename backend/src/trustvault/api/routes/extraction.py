@@ -5,10 +5,15 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from trustvault.api.dependencies import get_database
+from trustvault.auth.dependencies import require_permission
 from trustvault.core.feature_services import TrustVaultFeatureService
 from trustvault.db.models import Entity, FitsIndexEntry
 
-router = APIRouter(prefix="/api/v1/extraction", tags=["extraction"])
+router = APIRouter(
+    prefix="/api/v1/extraction",
+    tags=["extraction"],
+    dependencies=[Depends(require_permission("evidence:read"))],
+)
 
 
 @router.get("/summary")

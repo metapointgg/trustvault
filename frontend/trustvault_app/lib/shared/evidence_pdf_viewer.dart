@@ -6,7 +6,8 @@ import 'package:pdfrx/pdfrx.dart';
 import '../core/api/trustvault_api_client.dart';
 
 class EvidencePdfViewer extends StatelessWidget {
-  const EvidencePdfViewer({super.key, required this.apiClient, required this.evidenceObjectId});
+  const EvidencePdfViewer(
+      {super.key, required this.apiClient, required this.evidenceObjectId});
 
   final TrustVaultApiClient apiClient;
   final String evidenceObjectId;
@@ -29,9 +30,10 @@ class EvidencePdfViewer extends StatelessWidget {
         }
         final bytes = snapshot.data;
         if (bytes == null || bytes.isEmpty) {
-          return const Center(child: Text('No PDF data was returned for this evidence item.'));
+          return const Center(
+              child: Text('No PDF data was returned for this evidence item.'));
         }
-        return PdfViewer.data(bytes);
+        return PdfViewer.data(bytes, sourceName: evidenceObjectId);
       },
     );
   }

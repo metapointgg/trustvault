@@ -45,6 +45,8 @@ SETTING_DEFINITIONS: list[SettingDefinition] = [
     SettingDefinition("auto_ingestion_strict_structure", "Automatic ingestion", "bool", "Validate required source folder structure before ingestion."),
     SettingDefinition("auto_ingestion_rebuild_container", "Automatic ingestion", "bool", "Rebuild affected customer FITS archive after automatic ingestion."),
     SettingDefinition("auto_ingestion_rebuild_index", "Automatic ingestion", "bool", "Rebuild affected customer index rows after automatic ingestion."),
+    SettingDefinition("categorisation_filename_document_type_map", "Categorisation", "string", "JSON object mapping filename fragments or regex patterns to document types."),
+    SettingDefinition("categorisation_document_type_category_map", "Categorisation", "string", "JSON object mapping document types to assurance categories."),
     SettingDefinition("auth_token_secret", "Secrets", "string", "Local token signing secret. Managed via environment/secret manager only.", editable=False, secret=True),
     SettingDefinition("local_admin_password", "Secrets", "string", "Initial bootstrap verifier. Managed via environment/secret manager only.", editable=False, secret=True),
 ]

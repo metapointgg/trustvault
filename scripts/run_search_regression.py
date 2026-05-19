@@ -53,6 +53,36 @@ TESTS: list[dict[str, Any]] = [
         "expect_non_empty": True,
     },
     {
+        "id": "completeness_summary_endpoint",
+        "group": "Archive/status checks",
+        "kind": "get",
+        "path": "/api/v1/completeness/summary",
+        "description": "Batch completeness endpoint used by the Completeness page.",
+        "expect_non_empty": True,
+        "expect_result_count_min": 1,
+        "expected_json_keys": ["results", "entity_count", "complete_entity_count", "incomplete_entity_count"],
+    },
+    {
+        "id": "integrity_summary_endpoint",
+        "group": "Archive/status checks",
+        "kind": "get",
+        "path": "/api/v1/integrity/summary",
+        "description": "Fast metadata integrity summary used by the Integrity page.",
+        "expect_non_empty": True,
+        "expected_json_keys": ["results", "checked_count", "summary_mode"],
+        "expected_json_value": {"summary_mode": "metadata"},
+        "max_elapsed_seconds": 2.0,
+    },
+    {
+        "id": "categorisation_summary_endpoint",
+        "group": "Archive/status checks",
+        "kind": "get",
+        "path": "/api/v1/categorisation/summary",
+        "description": "Uncategorised evidence reconciliation summary.",
+        "expect_non_empty": True,
+        "expected_json_keys": ["results", "uncategorised_count", "evidence_object_count"],
+    },
+    {
         "id": "archive_status_nl",
         "group": "Archive/status checks",
         "kind": "execute",
@@ -616,6 +646,18 @@ class TrustVaultRegressionRunner:
             return issues
         if test.get("expect_non_empty") and not response.get("json"):
             issues.append("empty_response")
+        expected_json_keys = test.get("expected_json_keys") or []
+        response_json = response.get("json") if isinstance(response.get("json"), dict) else {}
+        for key in expected_json_keys:
+            if key not in response_json:
+                issues.append(f"missing_json_key_{key}")
+        for key, expected_value in (test.get("expected_json_value") or {}).items():
+            if response_json.get(key) != expected_value:
+                issues.append(f"json_value_{key}_expected_{expected_value}_got_{response_json.get(key)}")
+        max_elapsed = test.get("max_elapsed_seconds")
+        elapsed = response.get("elapsed_seconds")
+        if max_elapsed is not None and elapsed is not None and elapsed > max_elapsed:
+            issues.append(f"elapsed_seconds_expected_max_{max_elapsed}_got_{elapsed}")
         expected = test.get("expected_capability")
         if expected and derived.get("capability") != expected:
             issues.append(f"capability_expected_{expected}_got_{derived.get('capability')}")

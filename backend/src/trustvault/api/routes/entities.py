@@ -7,9 +7,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from trustvault.api.dependencies import get_database
+from trustvault.auth.dependencies import require_permission
 from trustvault.db.models import Entity, EvidenceObject
 
-router = APIRouter(prefix="/api/v1/entities", tags=["entities"])
+router = APIRouter(
+    prefix="/api/v1/entities",
+    tags=["entities"],
+    dependencies=[Depends(require_permission("evidence:read"))],
+)
 
 
 class EntityResponse(BaseModel):

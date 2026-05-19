@@ -30,18 +30,24 @@ class _LicenceScreenState extends State<LicenceScreen> {
       _error = null;
     });
     try {
-      final picked = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: const ['json'], withData: true);
+      final picked = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: const ['json'],
+          withData: true);
       if (picked == null || picked.files.isEmpty) {
         setState(() => _uploading = false);
         return;
       }
       final file = picked.files.single;
       final bytes = file.bytes;
-      if (bytes == null) throw StateError('No file bytes were returned by the browser picker.');
-      final result = await _apiClient.uploadLicenceFile(filename: file.name, bytes: bytes);
+      if (bytes == null)
+        throw StateError('No file bytes were returned by the browser picker.');
+      final result =
+          await _apiClient.uploadLicenceFile(filename: file.name, bytes: bytes);
       if (!mounted) return;
       setState(() {
-        _message = 'Licence applied: ${result['state']} · ${result['customer_name'] ?? 'Unknown customer'}';
+        _message =
+            'Licence applied: ${result['state']} · ${result['customer_name'] ?? 'Unknown customer'}';
         _future = Future<Map<String, dynamic>>.value(result);
         _uploading = false;
       });
@@ -61,11 +67,16 @@ class _LicenceScreenState extends State<LicenceScreen> {
       child: FutureBuilder<Map<String, dynamic>>(
         future: _future,
         builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-          if (snapshot.hasError) return Center(child: Text('Unable to load licence status: ${snapshot.error}'));
+          if (snapshot.connectionState != ConnectionState.done)
+            return const Center(child: CircularProgressIndicator());
+          if (snapshot.hasError)
+            return Center(
+                child:
+                    Text('Unable to load licence status: ${snapshot.error}'));
 
           final licence = snapshot.data ?? <String, dynamic>{};
-          final modules = (licence['modules'] as List<dynamic>? ?? <dynamic>[]).cast<dynamic>();
+          final modules = (licence['modules'] as List<dynamic>? ?? <dynamic>[])
+              .cast<dynamic>();
           final validUntil = licence['valid_until'];
 
           return ListView(
@@ -76,17 +87,31 @@ class _LicenceScreenState extends State<LicenceScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Licence', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
+                        Text('Licence',
+                            style: Theme.of(context)
+                                .textTheme
+                                .displaySmall
+                                ?.copyWith(fontWeight: FontWeight.w700)),
                         const SizedBox(height: 8),
-                        const Text('Review the active TrustVault deployment entitlement and apply replacement licence files.'),
+                        const Text(
+                            'Review the active TrustVault deployment entitlement and apply replacement licence files.'),
                       ],
                     ),
                   ),
-                  OutlinedButton.icon(onPressed: () => setState(() => _future = _apiClient.getLicenceStatus()), icon: const Icon(Icons.refresh), label: const Text('Refresh')),
+                  OutlinedButton.icon(
+                      onPressed: () => setState(
+                          () => _future = _apiClient.getLicenceStatus()),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Refresh')),
                   const SizedBox(width: 12),
                   FilledButton.icon(
                     onPressed: _uploading ? null : _uploadLicence,
-                    icon: _uploading ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.upload_file),
+                    icon: _uploading
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.upload_file),
                     label: Text(_uploading ? 'Applying...' : 'Upload licence'),
                   ),
                 ],
@@ -104,14 +129,22 @@ class _LicenceScreenState extends State<LicenceScreen> {
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.key_outlined),
-                        title: Text('${licence['customer_name'] ?? 'Unknown customer'}'),
+                        title: Text(
+                            '${licence['customer_name'] ?? 'Unknown customer'}'),
                         subtitle: Text('${licence['message'] ?? ''}'),
-                        trailing: _StatusPill(label: '${licence['state'] ?? 'unknown'}'),
+                        trailing: _StatusPill(
+                            label: '${licence['state'] ?? 'unknown'}'),
                       ),
                       const Divider(height: 32),
-                      _DetailRow(label: 'Licence ID', value: '${licence['licence_id'] ?? '-'}'),
-                      _DetailRow(label: 'Edition', value: '${licence['edition'] ?? '-'}'),
-                      _DetailRow(label: 'Expiry date', value: validUntil == null ? '-' : '$validUntil'),
+                      _DetailRow(
+                          label: 'Licence ID',
+                          value: '${licence['licence_id'] ?? '-'}'),
+                      _DetailRow(
+                          label: 'Edition',
+                          value: '${licence['edition'] ?? '-'}'),
+                      _DetailRow(
+                          label: 'Expiry date',
+                          value: validUntil == null ? '-' : '$validUntil'),
                     ],
                   ),
                 ),
@@ -123,12 +156,19 @@ class _LicenceScreenState extends State<LicenceScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Licensed modules', style: Theme.of(context).textTheme.titleLarge),
+                      Text('Licensed modules',
+                          style: Theme.of(context).textTheme.titleLarge),
                       const SizedBox(height: 16),
                       if (modules.isEmpty)
-                        const Text('No licensed modules reported by the current licence file.')
+                        const Text(
+                            'No licensed modules reported by the current licence file.')
                       else
-                        Wrap(spacing: 8, runSpacing: 8, children: modules.map((module) => Chip(label: Text('$module'))).toList()),
+                        Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: modules
+                                .map((module) => Chip(label: Text('$module')))
+                                .toList()),
                     ],
                   ),
                 ),
@@ -151,12 +191,22 @@ class _StatusPill extends StatelessWidget {
     final positive = label.toLowerCase() == 'valid';
     final warning = label.toLowerCase() == 'grace';
     final scheme = Theme.of(context).colorScheme;
-    final background = positive ? scheme.primaryContainer : warning ? scheme.secondaryContainer : scheme.errorContainer;
-    final foreground = positive ? scheme.onPrimaryContainer : warning ? scheme.onSecondaryContainer : scheme.onErrorContainer;
+    final background = positive
+        ? scheme.primaryContainer
+        : warning
+            ? scheme.secondaryContainer
+            : scheme.errorContainer;
+    final foreground = positive
+        ? scheme.onPrimaryContainer
+        : warning
+            ? scheme.onSecondaryContainer
+            : scheme.onErrorContainer;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(999)),
-      child: Text(label, style: TextStyle(color: foreground, fontWeight: FontWeight.w700)),
+      decoration: BoxDecoration(
+          color: background, borderRadius: BorderRadius.circular(999)),
+      child: Text(label,
+          style: TextStyle(color: foreground, fontWeight: FontWeight.w700)),
     );
   }
 }
@@ -174,8 +224,14 @@ class _Banner extends StatelessWidget {
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: positive ? scheme.primaryContainer : scheme.errorContainer, borderRadius: BorderRadius.circular(12)),
-      child: Text(message, style: TextStyle(color: positive ? scheme.onPrimaryContainer : scheme.onErrorContainer)),
+      decoration: BoxDecoration(
+          color: positive ? scheme.primaryContainer : scheme.errorContainer,
+          borderRadius: BorderRadius.circular(12)),
+      child: Text(message,
+          style: TextStyle(
+              color: positive
+                  ? scheme.onPrimaryContainer
+                  : scheme.onErrorContainer)),
     );
   }
 }
@@ -192,7 +248,10 @@ class _DetailRow extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         children: [
-          SizedBox(width: 140, child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700))),
+          SizedBox(
+              width: 140,
+              child: Text(label,
+                  style: const TextStyle(fontWeight: FontWeight.w700))),
           Expanded(child: Text(value)),
         ],
       ),

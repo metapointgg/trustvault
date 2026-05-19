@@ -46,6 +46,7 @@ class TrustVaultFeatureService:
         ) or 0
         index_entries = self.db.scalar(select(func.count()).select_from(FitsIndexEntry)) or 0
         missing_current_fits = max(entity_count - current_fits, 0)
+        uncategorised_count = self._uncategorised_evidence_count()
         return {
             "product": "TrustVault",
             "tagline": "Secure evidence assurance for regulated customer records",
@@ -63,7 +64,49 @@ class TrustVaultFeatureService:
             "completeness_exception_count": self.db.scalar(
                 select(func.count()).select_from(CompletenessResult).where(CompletenessResult.status == "missing")
             ) or 0,
+            "extraction_index_entry_count": index_entries,
+            "retention_issue_count": 0,
+            "integrity_issue_count": missing_current_fits,
+            "categorisation_uncategorised_count": uncategorised_count,
         }
+
+    def _uncategorised_evidence_count(self) -> int:
+        evidence_rows = self.db.scalars(select(EvidenceObject.metadata_json)).all()
+        entity_rows = self.db.scalars(select(Entity.metadata_json)).all()
+        evidence_count = sum(1 for metadata in evidence_rows if self._is_uncategorised_metadata(metadata or {}))
+        customer_gap_count = sum(1 for metadata in entity_rows if self._has_customer_information_gap(metadata or {}))
+        return evidence_count + customer_gap_count
+
+    def _has_customer_information_gap(self, metadata: dict[str, Any]) -> bool:
+        legacy_gaps = metadata.get("customer_information_gaps")
+        if legacy_gaps:
+            return True
+        assurance_gaps = metadata.get("assurance_gaps")
+        if not isinstance(assurance_gaps, list):
+            return False
+        return any(
+            isinstance(gap, dict)
+            and gap.get("gap_key") == "customer_information_missing"
+            and gap.get("status") != "resolved"
+            for gap in assurance_gaps
+        )
+
+    def _is_uncategorised_metadata(self, metadata: dict[str, Any]) -> bool:
+        category = self._normalise(metadata.get("category"))
+        document_type = self._normalise(metadata.get("document_type"))
+        status = self._normalise(metadata.get("classification_status"))
+        confidence_raw = metadata.get("classification_confidence")
+        try:
+            confidence = float(confidence_raw) if confidence_raw is not None else None
+        except (TypeError, ValueError):
+            confidence = None
+        uncategorised = {"", "unknown", "uncategorised", "uncategorized", "general", "general_evidence", "document"}
+        return (
+            category in uncategorised
+            or document_type in uncategorised
+            or status in {"uncategorised", "uncategorized", "unmatched"}
+            or (confidence is not None and confidence < 0.75)
+        )
 
     def archive_status(self) -> dict[str, Any]:
         settings = get_settings()
@@ -209,23 +252,26 @@ class TrustVaultFeatureService:
         self.db.add(ruleset)
         self.db.flush()
         defaults = [
-            ("identity_passport", "identity", "passport"),
-            ("proof_of_address", "proof_of_address", "proof_of_address"),
-            ("source_of_wealth", "source_of_wealth", "source_of_wealth"),
-            ("cdd_risk_review", "cdd_review", "cdd_risk_review"),
-            ("account_opening_application", "customer_documents", "account_opening_application"),
-            ("screening_evidence", "customer_documents", "screening"),
-            ("correspondence_due_diligence", "communications", "email"),
+            ("identity_passport", "identity", "passport", ["person"]),
+            ("proof_of_address", "proof_of_address", "proof_of_address", ["person"]),
+            ("source_of_wealth", "source_of_wealth", "source_of_wealth", ["person"]),
+            ("cdd_risk_review", "cdd_review", "cdd_risk_review", ["person", "organisation"]),
+            ("account_opening_application", "customer_documents", "account_opening_application", ["person", "organisation"]),
+            ("screening_evidence", "customer_documents", "screening", ["person", "organisation"]),
+            ("correspondence_due_diligence", "communications", "email", ["person", "organisation"]),
+            ("organisation_chart", "ownership_and_control", "organisation_chart", ["organisation"]),
+            ("shareholder_certificate", "ownership_and_control", "shareholder_certificate", ["organisation"]),
+            ("certificate_of_incorporation", "organisation_identity", "certificate_of_incorporation", ["organisation"]),
         ]
-        for key, category, document_type in defaults:
+        for key, category, document_type, applies_to in defaults:
             self.db.add(RulesetRule(
                 ruleset_id=ruleset.id,
                 rule_key=key,
                 category=category,
                 document_type=document_type,
                 required=True,
-                applies_when_json={},
-                metadata_json={"source": "system_default"},
+                applies_when_json={"entity_types": applies_to},
+                metadata_json={"source": "system_default", "applies_to_entity_types": applies_to},
             ))
         self.db.commit()
         self.db.refresh(ruleset)
@@ -263,6 +309,7 @@ class TrustVaultFeatureService:
                     "applies_when_json": rule.applies_when_json,
                     "max_age_days": rule.max_age_days,
                     "metadata_json": rule.metadata_json,
+                    "applies_to_entity_types": self._rule_entity_types(rule),
                 }
                 for rule in rules
             ],
@@ -277,6 +324,8 @@ class TrustVaultFeatureService:
         results = []
         present_count = 0
         for rule in rules:
+            if not self._rule_applies_to_entity(rule, entity):
+                continue
             match = self._match_rule(rule, manifest)
             if match:
                 present_count += 1
@@ -345,6 +394,24 @@ class TrustVaultFeatureService:
                 return item
         return None
 
+    def _rule_applies_to_entity(self, rule: RulesetRule, entity: Entity) -> bool:
+        entity_types = self._rule_entity_types(rule)
+        if not entity_types:
+            return True
+        return self._normalise(entity.entity_type) in {self._normalise(item) for item in entity_types}
+
+    def _rule_entity_types(self, rule: RulesetRule) -> list[str]:
+        applies_when = rule.applies_when_json or {}
+        metadata = rule.metadata_json or {}
+        raw = applies_when.get("entity_types") or metadata.get("applies_to_entity_types") or applies_when.get("entity_type")
+        if raw in (None, "", "both", "all"):
+            return []
+        if isinstance(raw, str):
+            return [raw]
+        if isinstance(raw, list):
+            return [str(item) for item in raw if str(item).strip()]
+        return []
+
     def extraction_report(self, entity_id: str) -> dict[str, Any]:
         entity = self._entity(entity_id)
         current = self._current_fits(entity.id, required=False)
@@ -382,19 +449,50 @@ class TrustVaultFeatureService:
             })
         return {"entity_count": len(rows), "entities": rows}
 
-    def integrity_summary(self, entity_id: str | None = None) -> dict[str, Any]:
+    def integrity_summary(self, entity_id: str | None = None, *, full: bool = False) -> dict[str, Any]:
         from trustvault.core.integrity import ContainerIntegrityValidator
 
         entities = [self._entity(entity_id)] if entity_id else self.db.scalars(select(Entity).order_by(Entity.external_id.asc())).all()
         rows = []
-        validator = ContainerIntegrityValidator(self.db)
+        validator = ContainerIntegrityValidator(self.db) if entity_id or full else None
         for entity in entities:
             current = self._current_fits(entity.id, required=False)
             if current is None:
-                rows.append({"entity_external_id": entity.external_id, "overall_status": "missing_current_fits"})
+                rows.append({
+                    "entity_id": str(entity.id),
+                    "entity_external_id": entity.external_id,
+                    "entity_display_name": entity.display_name,
+                    "overall_status": "missing_current_fits",
+                    "summary_mode": "metadata",
+                    "validated": False,
+                    "evidence_object_count": 0,
+                    "issue_count": 1,
+                })
                 continue
-            rows.append(validator.validate_container_version(str(current.id)))
-        return {"checked_count": len(rows), "results": rows}
+            if validator is not None:
+                rows.append(validator.validate_container_version(str(current.id)))
+                continue
+            rows.append({
+                "entity_id": str(entity.id),
+                "entity_external_id": entity.external_id,
+                "entity_display_name": entity.display_name,
+                "container_version_id": str(current.id),
+                "version_number": current.version_number,
+                "status": current.status,
+                "storage_uri": current.storage_uri,
+                "expected_container_sha256": current.sha256,
+                "expected_size_bytes": current.size_bytes,
+                "evidence_object_count": current.evidence_object_count,
+                "fits_opened": None,
+                "container_hash_matches": None,
+                "missing_required_hdus": [],
+                "payload_results": [],
+                "overall_status": "not_checked",
+                "summary_mode": "metadata",
+                "validated": False,
+                "issue_count": 0,
+            })
+        return {"checked_count": len(rows), "summary_mode": "full" if full or entity_id else "metadata", "results": rows}
 
     def source_systems(self) -> list[dict[str, Any]]:
         rows = self.db.scalars(select(SourceSystem).order_by(SourceSystem.name.asc())).all()

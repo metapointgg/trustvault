@@ -67,6 +67,31 @@ class Settings(BaseSettings):
     auto_ingestion_strict_structure: bool = True
     auto_ingestion_rebuild_container: bool = True
     auto_ingestion_rebuild_index: bool = True
+    categorisation_filename_document_type_map: str = (
+        '{"passport":"Passport","id":"Passport","identity":"Passport","driving_licence":"Driving Licence",'
+        '"drivers_license":"Driving Licence","proof_of_address":"Proof of Address","utility_bill":"Proof of Address",'
+        '"council_tax":"Proof of Address","address":"Proof of Address","source_of_funds":"Source of Funds",'
+        '"sof":"Source of Funds","source_of_wealth":"Source of Wealth","sow":"Source of Wealth","cdd":"CDD Review",'
+        '"review":"CDD Review","periodic_review":"CDD Review","application":"Application","onboarding":"Application",'
+        '"account_opening":"Application","screening":"Screening Evidence","sanctions":"Screening Evidence","pep":"Screening Evidence",'
+        '"edd":"EDD Approval","enhanced_due_diligence":"EDD Approval","registry":"Company Registry Extract",'
+        '"company_extract":"Company Registry Extract","beneficial_owner":"Beneficial Owner Evidence","ubo":"Beneficial Owner Evidence",'
+        '"authorised_signatory":"Authorised Signatory ID","signatory":"Authorised Signatory ID","statement":"Monthly Statement",'
+        '"bank_statement":"Monthly Statement","transaction_extract":"Transaction Extract","transactions":"Transaction Extract",'
+        '"email":"Customer Correspondence","correspondence":"Customer Correspondence","letter":"Customer Correspondence",'
+        '"customer":"Customer Metadata","metadata":"Customer Metadata","legacy":"Legacy Binary Payload","archive":"Legacy Binary Payload",'
+        '"binary":"Legacy Binary Payload","organisation_chart":"Organisation Chart","organization_chart":"Organisation Chart",'
+        '"shareholder_certificate":"Shareholder Certificate","certificate_of_incorporation":"Certificate of Incorporation"}'
+    )
+    categorisation_document_type_category_map: str = (
+        '{"Passport":"Identity","Driving Licence":"Identity","Proof of Address":"Address",'
+        '"Source of Funds":"Source of Funds","Source of Wealth":"Source of Wealth","CDD Review":"CDD",'
+        '"Application":"Onboarding","Screening Evidence":"Screening","EDD Approval":"EDD",'
+        '"Company Registry Extract":"Corporate","Beneficial Owner Evidence":"Corporate","Authorised Signatory ID":"Corporate",'
+        '"Monthly Statement":"Statement","Transaction Extract":"Transaction","Customer Correspondence":"Correspondence",'
+        '"Customer Metadata":"Customer Information","Legacy Binary Payload":"Legacy Evidence","Organisation Chart":"Corporate",'
+        '"Shareholder Certificate":"Corporate","Certificate of Incorporation":"Corporate","Audit Events":"Audit"}'
+    )
 
     model_config = SettingsConfigDict(
         env_prefix="TRUSTVAULT_",

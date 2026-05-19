@@ -27,34 +27,68 @@ final appRouter = GoRouter(
     ShellRoute(
       builder: (context, state, child) => AppShell(child: child),
       routes: [
-        GoRoute(path: '/', builder: (context, state) => const DashboardScreen()),
+        GoRoute(
+            path: '/', builder: (context, state) => const DashboardScreen()),
         GoRoute(
           path: '/health',
           builder: (context, state) => FeatureStatusScreen(
             title: 'Health',
-            description: 'Operational status for API, database, storage, queue, worker, AI and OCR providers.',
+            description:
+                'Operational status for API, database, storage, queue, worker, AI and OCR providers.',
             loader: (api) => api.getApiHealth(),
           ),
         ),
-        GoRoute(path: '/comparison', builder: (context, state) => const ComparisonScreen()),
-        GoRoute(path: '/customers', builder: (context, state) => const EntitiesScreen()),
-        GoRoute(path: '/entities', builder: (context, state) => const EntitiesScreen()),
-        GoRoute(path: '/search', builder: (context, state) => const SearchScreen()),
+        GoRoute(
+            path: '/comparison',
+            builder: (context, state) => const ComparisonScreen()),
+        GoRoute(
+            path: '/customers',
+            builder: (context, state) => const EntitiesScreen()),
+        GoRoute(
+            path: '/entities',
+            builder: (context, state) => const EntitiesScreen()),
+        GoRoute(
+            path: '/search', builder: (context, state) => const SearchScreen()),
         GoRoute(path: '/api', redirect: (context, state) => '/search'),
-        GoRoute(path: '/completeness', builder: (context, state) => const CompletenessScreen()),
-        GoRoute(path: '/rulesets', builder: (context, state) => const RulesetsScreen()),
-        GoRoute(path: '/categorisation', builder: (context, state) => const CategorisationScreen()),
-        GoRoute(path: '/ingestion', builder: (context, state) => const SourceFolderUploadScreen()),
-        GoRoute(path: '/extraction', builder: (context, state) => const ExtractionScreen()),
-        GoRoute(path: '/retention', builder: (context, state) => const RetentionScreen()),
-        GoRoute(path: '/integrity', builder: (context, state) => const IntegrityScreen()),
-        GoRoute(path: '/export', builder: (context, state) => const FitsExportScreen()),
-        GoRoute(path: '/fits', builder: (context, state) => const FitsOperationsScreen()),
+        GoRoute(
+            path: '/completeness',
+            builder: (context, state) => const CompletenessScreen()),
+        GoRoute(
+            path: '/rulesets',
+            builder: (context, state) => const RulesetsScreen()),
+        GoRoute(
+            path: '/categorisation',
+            builder: (context, state) => const CategorisationScreen()),
+        GoRoute(
+            path: '/ingestion',
+            builder: (context, state) => const SourceFolderUploadScreen()),
+        GoRoute(
+            path: '/extraction',
+            builder: (context, state) => const ExtractionScreen()),
+        GoRoute(
+            path: '/retention',
+            builder: (context, state) => const RetentionScreen()),
+        GoRoute(
+            path: '/integrity',
+            builder: (context, state) => const IntegrityScreen()),
+        GoRoute(
+            path: '/export',
+            builder: (context, state) => const FitsExportScreen()),
+        GoRoute(
+            path: '/fits',
+            builder: (context, state) => const FitsOperationsScreen()),
         GoRoute(path: '/jobs', builder: (context, state) => const JobsScreen()),
-        GoRoute(path: '/users', builder: (context, state) => const UserAdminScreen()),
-        GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
-        GoRoute(path: '/audit', builder: (context, state) => const AuditScreen()),
-        GoRoute(path: '/licence', builder: (context, state) => const LicenceScreen()),
+        GoRoute(
+            path: '/users',
+            builder: (context, state) => const UserAdminScreen()),
+        GoRoute(
+            path: '/settings',
+            builder: (context, state) => const SettingsScreen()),
+        GoRoute(
+            path: '/audit', builder: (context, state) => const AuditScreen()),
+        GoRoute(
+            path: '/licence',
+            builder: (context, state) => const LicenceScreen()),
       ],
     ),
   ],

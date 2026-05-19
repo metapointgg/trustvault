@@ -1,7 +1,8 @@
 import 'package:flutter/foundation.dart';
 
 class SelectedCustomerController {
-  static final ValueNotifier<Map<String, dynamic>?> selected = ValueNotifier<Map<String, dynamic>?>(null);
+  static final ValueNotifier<Map<String, dynamic>?> selected =
+      ValueNotifier<Map<String, dynamic>?>(null);
   static final ValueNotifier<int> refreshToken = ValueNotifier<int>(0);
   static bool openSearchForSelectedEntity = false;
 

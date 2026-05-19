@@ -12,7 +12,8 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final TrustVaultApiClient _apiClient = TrustVaultApiClient();
-  final TextEditingController _emailController = TextEditingController(text: 'admin@trustvault.local');
+  final TextEditingController _emailController =
+      TextEditingController(text: 'admin@trustvault.local');
   final TextEditingController _verifierController = TextEditingController();
   bool _loading = false;
   String? _error;
@@ -73,14 +74,20 @@ class _LoginScreenState extends State<LoginScreen> {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.verified_user_outlined, size: 42, color: scheme.primary),
+                        Icon(Icons.verified_user_outlined,
+                            size: 42, color: scheme.primary),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('TrustVault', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
-                              const Text('Secure evidence assurance for regulated customer records'),
+                              Text('TrustVault',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineSmall
+                                      ?.copyWith(fontWeight: FontWeight.w800)),
+                              const Text(
+                                  'Secure evidence assurance for regulated customer records'),
                             ],
                           ),
                         ),
@@ -89,14 +96,16 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 28),
                     TextField(
                       controller: _emailController,
-                      decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(
+                          labelText: 'Email', border: OutlineInputBorder()),
                       keyboardType: TextInputType.emailAddress,
                       onSubmitted: (_) => _login(),
                     ),
                     const SizedBox(height: 16),
                     TextField(
                       controller: _verifierController,
-                      decoration: const InputDecoration(labelText: 'Verifier', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(
+                          labelText: 'Verifier', border: OutlineInputBorder()),
                       obscureText: true,
                       onSubmitted: (_) => _login(),
                     ),
@@ -108,7 +117,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     FilledButton.icon(
                       onPressed: _loading ? null : _login,
                       icon: _loading
-                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2))
                           : const Icon(Icons.login),
                       label: const Text('Sign in'),
                     ),

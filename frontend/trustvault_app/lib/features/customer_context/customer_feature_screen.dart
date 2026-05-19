@@ -16,7 +16,8 @@ class CustomerFeatureScreen extends StatefulWidget {
 
   final String title;
   final String description;
-  final Future<Map<String, dynamic>> Function(TrustVaultApiClient apiClient, String entityExternalId) loader;
+  final Future<Map<String, dynamic>> Function(
+      TrustVaultApiClient apiClient, String entityExternalId) loader;
   final String? actionLabel;
 
   @override
@@ -37,7 +38,8 @@ class _CustomerFeatureScreenState extends State<CustomerFeatureScreen> {
 
   @override
   void dispose() {
-    SelectedCustomerController.selected.removeListener(_loadForSelectedCustomer);
+    SelectedCustomerController.selected
+        .removeListener(_loadForSelectedCustomer);
     super.dispose();
   }
 
@@ -71,15 +73,23 @@ class _CustomerFeatureScreenState extends State<CustomerFeatureScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(widget.title, style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
+                    Text(widget.title,
+                        style: Theme.of(context)
+                            .textTheme
+                            .displaySmall
+                            ?.copyWith(fontWeight: FontWeight.w700)),
                     const SizedBox(height: 8),
                     Text(widget.description),
                     const SizedBox(height: 8),
-                    Text('Customer: $selectedLabel', style: Theme.of(context).textTheme.titleSmall),
+                    Text('Customer: $selectedLabel',
+                        style: Theme.of(context).textTheme.titleSmall),
                   ],
                 ),
               ),
-              OutlinedButton.icon(onPressed: _loadForSelectedCustomer, icon: const Icon(Icons.refresh), label: const Text('Refresh')),
+              OutlinedButton.icon(
+                  onPressed: _loadForSelectedCustomer,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Refresh')),
             ],
           ),
           const SizedBox(height: 24),
@@ -94,10 +104,13 @@ class _CustomerFeatureScreenState extends State<CustomerFeatureScreen> {
                         return const Center(child: CircularProgressIndicator());
                       }
                       if (snapshot.hasError) {
-                        return Center(child: Text('Unable to load ${widget.title}: ${snapshot.error}'));
+                        return Center(
+                            child: Text(
+                                'Unable to load ${widget.title}: ${snapshot.error}'));
                       }
                       final data = snapshot.data ?? <String, dynamic>{};
-                      return _StructuredJsonCard(title: widget.title, data: data);
+                      return _StructuredJsonCard(
+                          title: widget.title, data: data);
                     },
                   ),
           ),
@@ -144,13 +157,22 @@ class _SummaryStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final values = <String, String>{};
-    for (final key in ['score', 'missing_count', 'present_count', 'required_count', 'checked_count', 'entity_count', 'result_count']) {
+    for (final key in [
+      'score',
+      'missing_count',
+      'present_count',
+      'required_count',
+      'checked_count',
+      'entity_count',
+      'result_count'
+    ]) {
       if (data.containsKey(key)) values[key] = '${data[key]}';
     }
     if (data.containsKey('checks')) {
       final checks = data['checks'] as List<dynamic>? ?? <dynamic>[];
       values['checks'] = '${checks.length}';
-      values['failures'] = '${checks.where((item) => (item as Map<String, dynamic>)['status'] == 'fail').length}';
+      values['failures'] =
+          '${checks.where((item) => (item as Map<String, dynamic>)['status'] == 'fail').length}';
     }
     if (values.isEmpty) return const SizedBox.shrink();
     return Wrap(

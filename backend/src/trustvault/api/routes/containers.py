@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from trustvault.audit.events import CONTAINER_REBUILT, INTEGRITY_VALIDATION_RUN
 from trustvault.audit.logger import AuditLogger
 from trustvault.api.dependencies import get_audit_logger, get_database
+from trustvault.auth.dependencies import require_permission
+from trustvault.auth.models import CurrentUser
 from trustvault.core.container_builder import EntityContainerBuilder
 from trustvault.core.container_normalisation import ContainerVersionNormaliser
 from trustvault.core.container_status import ContainerStatusService
@@ -114,6 +116,7 @@ def serialise_version(version: EntityContainerVersion) -> ContainerVersionRespon
 def list_entity_container_versions(
     entity_id: str,
     db: Session = Depends(get_database),
+    current_user: CurrentUser = Depends(require_permission("evidence:read")),
 ) -> list[ContainerVersionResponse]:
     entity = db.scalars(select(Entity).where(Entity.external_id == entity_id)).first()
     resolved_entity_id = entity.id if entity is not None else entity_id
@@ -127,7 +130,10 @@ def list_entity_container_versions(
 
 
 @router.get("/admin/status", response_model=ContainerStatusResponse)
-def container_status(db: Session = Depends(get_database)) -> ContainerStatusResponse:
+def container_status(
+    db: Session = Depends(get_database),
+    current_user: CurrentUser = Depends(require_permission("integrity:run")),
+) -> ContainerStatusResponse:
     result = ContainerStatusService(db).entity_container_status()
     return ContainerStatusResponse(**result)
 
@@ -137,6 +143,7 @@ def rebuild_container(
     request: RebuildContainerRequest,
     db: Session = Depends(get_database),
     audit_logger: AuditLogger = Depends(get_audit_logger),
+    current_user: CurrentUser = Depends(require_permission("containers:rebuild")),
 ) -> RebuildContainerResponse:
     entity_reference = request.entity_id or request.entity_external_id
     if not entity_reference:
@@ -149,6 +156,7 @@ def rebuild_container(
 
     audit_logger.log(
         CONTAINER_REBUILT,
+        user_id=current_user.subject,
         entity_ids=[result["entity_id"]],
         metadata={
             "mode": "api_sync",
@@ -166,6 +174,7 @@ def validate_container_version(
     container_version_id: str,
     db: Session = Depends(get_database),
     audit_logger: AuditLogger = Depends(get_audit_logger),
+    current_user: CurrentUser = Depends(require_permission("integrity:run")),
 ) -> ContainerValidationResponse:
     try:
         result = ContainerIntegrityValidator(db).validate_container_version(container_version_id)
@@ -174,6 +183,7 @@ def validate_container_version(
 
     audit_logger.log(
         INTEGRITY_VALIDATION_RUN,
+        user_id=current_user.subject,
         status="success" if result["overall_status"] == "valid" else "error",
         entity_ids=[result["entity_id"]],
         metadata={
@@ -191,10 +201,12 @@ def validate_container_version(
 def normalise_legacy_placeholders(
     db: Session = Depends(get_database),
     audit_logger: AuditLogger = Depends(get_audit_logger),
+    current_user: CurrentUser = Depends(require_permission("containers:rebuild")),
 ) -> ContainerNormalisationResponse:
     result = ContainerVersionNormaliser(db).normalise_legacy_placeholders()
     audit_logger.log(
         INTEGRITY_VALIDATION_RUN,
+        user_id=current_user.subject,
         metadata={
             "operation": "normalise_legacy_placeholder_containers",
             "updated_count": result["updated_count"],
@@ -208,10 +220,12 @@ def normalise_legacy_placeholders(
 def rebuild_missing_current_fits(
     db: Session = Depends(get_database),
     audit_logger: AuditLogger = Depends(get_audit_logger),
+    current_user: CurrentUser = Depends(require_permission("containers:rebuild")),
 ) -> RebuildMissingFitsResponse:
     result = ContainerStatusService(db).rebuild_missing_current_fits()
     audit_logger.log(
         CONTAINER_REBUILT,
+        user_id=current_user.subject,
         metadata={
             "operation": "rebuild_missing_current_fits",
             "rebuilt_count": result["rebuilt_count"],

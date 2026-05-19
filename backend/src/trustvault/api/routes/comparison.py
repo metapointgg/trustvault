@@ -4,9 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from trustvault.api.dependencies import get_database
+from trustvault.auth.dependencies import require_permission
 from trustvault.core.feature_services import TrustVaultFeatureService
 
-router = APIRouter(prefix="/api/v1/comparison", tags=["comparison"])
+router = APIRouter(
+    prefix="/api/v1/comparison",
+    tags=["comparison"],
+    dependencies=[Depends(require_permission("integrity:run"))],
+)
 
 
 @router.get("/entities/{entity_id}/fits-vs-db")

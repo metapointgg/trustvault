@@ -46,6 +46,7 @@ class DropFolderIngestionService:
                 name: {
                     "exists": path.exists(),
                     "zip_count": len(list(path.glob("*.zip"))) if path.exists() else 0,
+                    "folder_count": len([child for child in path.iterdir() if child.is_dir() and not child.name.startswith(".")]) if path.exists() else 0,
                     "sidecar_count": len(list(path.glob("*.zip.json"))) if path.exists() else 0,
                 }
                 for name, path in folders.items()
@@ -80,7 +81,69 @@ class DropFolderIngestionService:
                 duplicate_count += 1
             else:
                 failed_count += 1
+        for folder_path in sorted(child for child in folders["drop"].iterdir() if child.is_dir() and not child.name.startswith(".")):
+            result = self.process_folder(
+                folder_path,
+                folders=folders,
+                strict_structure=bool(values.get("auto_ingestion_strict_structure", True)),
+                rebuild_container=bool(values.get("auto_ingestion_rebuild_container", True)),
+                rebuild_index=bool(values.get("auto_ingestion_rebuild_index", True)),
+            )
+            results.append(result)
+            if result["status"] == "processed":
+                processed_count += 1
+            elif result["status"] == "duplicate":
+                duplicate_count += 1
+            else:
+                failed_count += 1
         return {"enabled": True, "processed_count": processed_count, "duplicate_count": duplicate_count, "failed_count": failed_count, "results": results}
+
+    def process_folder(
+        self,
+        folder_path: Path,
+        *,
+        folders: dict[str, Path],
+        strict_structure: bool,
+        rebuild_container: bool,
+        rebuild_index: bool,
+    ) -> dict[str, Any]:
+        processing_path = self._unique_path(folders["processing"] / folder_path.name)
+        started_at = datetime.now(timezone.utc).isoformat()
+        try:
+            folder_sha256 = self._folder_fingerprint(folder_path)
+            shutil.move(str(folder_path), processing_path)
+            validation = self.validate_folder(processing_path)
+            if strict_structure and not validation.valid:
+                raise ValueError("Invalid source folder structure: " + "; ".join(validation.errors))
+            zip_bytes = self._folder_zip_bytes(processing_path)
+            ingestion_result = SourceFolderIngestionService(self.db).ingest_zip_bytes(zip_bytes)
+            container = None
+            index = None
+            if ingestion_result.evidence_object_count > 0 and rebuild_container:
+                container = EntityContainerBuilder(self.db).rebuild(ingestion_result.entity_external_id)
+            if ingestion_result.evidence_object_count > 0 and rebuild_index:
+                index = FitsContainerReader(self.db).rebuild_index_from_current_fits(ingestion_result.entity_external_id)
+            status = "processed" if ingestion_result.evidence_object_count > 0 else "duplicate"
+            moved_final_path = self._unique_path(folders["processed"] / processing_path.name)
+            shutil.move(str(processing_path), moved_final_path)
+            self._write_sidecar(moved_final_path, {
+                "status": status,
+                "started_at": started_at,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "folder_sha256": folder_sha256,
+                "validation": validation.__dict__,
+                "ingestion": ingestion_result.__dict__,
+                "container": container,
+                "index": index,
+            })
+            return {"filename": folder_path.name, "status": status, "moved_to": str(moved_final_path), "folder_sha256": folder_sha256, "validation": validation.__dict__, "ingestion": ingestion_result.__dict__, "container": container, "index": index}
+        except Exception as exc:
+            source = processing_path if processing_path.exists() else folder_path
+            moved_final_path = self._unique_path(folders["failed"] / source.name)
+            if source.exists():
+                shutil.move(str(source), moved_final_path)
+            self._write_sidecar(moved_final_path, {"status": "failed", "started_at": started_at, "completed_at": datetime.now(timezone.utc).isoformat(), "error": str(exc)})
+            return {"filename": folder_path.name, "status": "failed", "moved_to": str(moved_final_path), "error": str(exc)}
 
     def process_zip(
         self,
@@ -197,6 +260,18 @@ class DropFolderIngestionService:
         except zipfile.BadZipFile:
             return DropFolderValidation(valid=False, root="", errors=["File is not a valid ZIP archive"], warnings=[], file_count=0)
 
+    def validate_folder(self, folder_path: Path) -> DropFolderValidation:
+        relative_names = [str(path.relative_to(folder_path)).replace("\\", "/") for path in folder_path.rglob("*") if path.is_file() and not path.name.startswith("._")]
+        errors: list[str] = []
+        warnings: list[str] = []
+        for required in self.REQUIRED_PATHS:
+            if required not in relative_names:
+                errors.append(f"Missing required file: {required}")
+        top_levels = {Path(name).parts[0] for name in relative_names if Path(name).parts}
+        if not top_levels.intersection(self.RECOMMENDED_TOP_LEVEL):
+            warnings.append("No recognised evidence folders were found.")
+        return DropFolderValidation(valid=not errors, root=folder_path.name, errors=errors, warnings=warnings, file_count=len(relative_names))
+
     def _find_prior_zip_fingerprint(self, zip_sha256: str, folders: dict[str, Path]) -> dict[str, Any] | None:
         for folder_name in ("processed", "failed"):
             folder = folders[folder_name]
@@ -236,6 +311,24 @@ class DropFolderIngestionService:
             return path
         suffix = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
         return path.with_name(f"{path.stem}-{suffix}{path.suffix}")
+
+    def _folder_zip_bytes(self, folder_path: Path) -> bytes:
+        import io
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(folder_path.rglob("*")):
+                if path.is_file():
+                    archive.write(path, arcname=f"{folder_path.name}/{path.relative_to(folder_path)}")
+        return buffer.getvalue()
+
+    def _folder_fingerprint(self, folder_path: Path) -> str:
+        import hashlib
+        digest = hashlib.sha256()
+        for path in sorted(folder_path.rglob("*")):
+            if path.is_file():
+                digest.update(str(path.relative_to(folder_path)).encode("utf-8"))
+                digest.update(path.read_bytes())
+        return digest.hexdigest()
 
     def _write_sidecar(self, zip_path: Path, payload: dict[str, Any]) -> None:
         sidecar = zip_path.with_suffix(zip_path.suffix + ".json")

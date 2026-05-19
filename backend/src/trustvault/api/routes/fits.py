@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 from trustvault.audit.events import INDEX_REBUILT, SEARCH_EXECUTED
 from trustvault.audit.logger import AuditLogger
 from trustvault.api.dependencies import get_audit_logger, get_database
+from trustvault.auth.dependencies import require_permission
+from trustvault.auth.models import CurrentUser
 from trustvault.core.fits_reader import FitsContainerReader
 
 router = APIRouter(prefix="/api/v1/fits", tags=["fits"])
@@ -77,6 +79,7 @@ class FitsIndexRebuildResponse(BaseModel):
 def inspect_current_entity_fits(
     entity_id: str,
     db: Session = Depends(get_database),
+    current_user: CurrentUser = Depends(require_permission("evidence:preview")),
 ) -> FitsInspectResponse:
     try:
         result = FitsContainerReader(db).inspect_current_for_entity(entity_id)
@@ -89,6 +92,7 @@ def inspect_current_entity_fits(
 def inspect_fits_version(
     container_version_id: str,
     db: Session = Depends(get_database),
+    current_user: CurrentUser = Depends(require_permission("evidence:preview")),
 ) -> FitsInspectResponse:
     try:
         result = FitsContainerReader(db).inspect_version(container_version_id)
@@ -103,6 +107,7 @@ def search_entity_fits(
     request: FitsSearchRequest,
     db: Session = Depends(get_database),
     audit_logger: AuditLogger = Depends(get_audit_logger),
+    current_user: CurrentUser = Depends(require_permission("search:execute")),
 ) -> FitsSearchResponse:
     try:
         result = FitsContainerReader(db).direct_search(entity_id, request.query, request.limit)
@@ -111,6 +116,7 @@ def search_entity_fits(
 
     audit_logger.log(
         SEARCH_EXECUTED,
+        user_id=current_user.subject,
         raw_query=request.query,
         result_count=result["result_count"],
         search_source="direct_fits_container",
@@ -129,6 +135,7 @@ def debug_entity_fits_search(
     entity_id: str,
     request: FitsSearchRequest,
     db: Session = Depends(get_database),
+    current_user: CurrentUser = Depends(require_permission("evidence:preview")),
 ) -> FitsSearchDebugResponse:
     try:
         result = FitsContainerReader(db).debug_search_text(entity_id, request.query)
@@ -142,6 +149,7 @@ def search_fits_index(
     request: FitsIndexSearchRequest,
     db: Session = Depends(get_database),
     audit_logger: AuditLogger = Depends(get_audit_logger),
+    current_user: CurrentUser = Depends(require_permission("search:execute")),
 ) -> FitsSearchResponse:
     entity_reference = request.entity_id or request.entity_external_id
     try:
@@ -151,6 +159,7 @@ def search_fits_index(
 
     audit_logger.log(
         SEARCH_EXECUTED,
+        user_id=current_user.subject,
         raw_query=request.query,
         result_count=result["result_count"],
         search_source="fits_index",
@@ -169,6 +178,7 @@ def rebuild_fits_index(
     request: FitsIndexRebuildRequest,
     db: Session = Depends(get_database),
     audit_logger: AuditLogger = Depends(get_audit_logger),
+    current_user: CurrentUser = Depends(require_permission("containers:rebuild")),
 ) -> FitsIndexRebuildResponse:
     entity_reference = request.entity_id or request.entity_external_id
     try:
@@ -178,6 +188,7 @@ def rebuild_fits_index(
 
     audit_logger.log(
         INDEX_REBUILT,
+        user_id=current_user.subject,
         metadata={
             "source": "current_fits_containers",
             "entity_reference": entity_reference,

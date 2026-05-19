@@ -43,6 +43,8 @@ class TrustVaultDataGrid extends StatefulWidget {
     this.emptyText = 'No rows available.',
     this.height = 420,
     this.dense = false,
+    this.isLoading = false,
+    this.loadingText = 'Loading rows...',
   });
 
   final String title;
@@ -56,6 +58,8 @@ class TrustVaultDataGrid extends StatefulWidget {
   final String emptyText;
   final double height;
   final bool dense;
+  final bool isLoading;
+  final String loadingText;
 
   @override
   State<TrustVaultDataGrid> createState() => _TrustVaultDataGridState();
@@ -70,7 +74,10 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
   @override
   void initState() {
     super.initState();
-    _visibleColumnKeys = widget.columns.where((column) => column.visibleByDefault).map((column) => column.key).toSet();
+    _visibleColumnKeys = widget.columns
+        .where((column) => column.visibleByDefault)
+        .map((column) => column.key)
+        .toSet();
     _searchController.addListener(() {
       setState(() => _search = _searchController.text.trim().toLowerCase());
     });
@@ -82,9 +89,13 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
     final validKeys = widget.columns.map((column) => column.key).toSet();
     _visibleColumnKeys = _visibleColumnKeys.intersection(validKeys);
     if (_visibleColumnKeys.isEmpty) {
-      _visibleColumnKeys = widget.columns.where((column) => column.visibleByDefault).map((column) => column.key).toSet();
+      _visibleColumnKeys = widget.columns
+          .where((column) => column.visibleByDefault)
+          .map((column) => column.key)
+          .toSet();
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) => _syncColumnVisibility());
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _syncColumnVisibility());
   }
 
   @override
@@ -93,12 +104,17 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
     super.dispose();
   }
 
-  List<TrustVaultDataGridColumn> get _visibleColumns => widget.columns.where((column) => _visibleColumnKeys.contains(column.key)).toList();
+  List<TrustVaultDataGridColumn> get _visibleColumns => widget.columns
+      .where((column) => _visibleColumnKeys.contains(column.key))
+      .toList();
 
   List<Map<String, dynamic>> get _filteredRows {
     if (_search.isEmpty) return widget.rows;
     return widget.rows.where((row) {
-      final haystack = widget.columns.map((column) => '${column.value(row) ?? ''}').join(' ').toLowerCase();
+      final haystack = widget.columns
+          .map((column) => '${column.value(row) ?? ''}')
+          .join(' ')
+          .toLowerCase();
       return haystack.contains(_search);
     }).toList();
   }
@@ -117,10 +133,12 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
         hide: !_visibleColumnKeys.contains(column.key),
         renderer: (rendererContext) {
           final raw = rendererContext.row.cells['_raw']?.value;
-          final sourceRow = raw is Map<String, dynamic> ? raw : <String, dynamic>{};
+          final sourceRow =
+              raw is Map<String, dynamic> ? raw : <String, dynamic>{};
           if (column.cellBuilder != null) return column.cellBuilder!(sourceRow);
           final value = rendererContext.cell.value;
-          return Text('$value', overflow: TextOverflow.ellipsis, maxLines: widget.dense ? 1 : 2);
+          return Text('$value',
+              overflow: TextOverflow.ellipsis, maxLines: widget.dense ? 1 : 2);
         },
       );
     }).toList();
@@ -152,12 +170,16 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
   void _exportCsv() {
     final rows = _filteredRows;
     final columns = _visibleColumns;
-    String escape(Object? value) => '"${'$value'.replaceAll('"', '""').replaceAll('\n', ' ').replaceAll('\r', ' ')}"';
-    final buffer = StringBuffer()..writeln(columns.map((column) => escape(column.label)).join(','));
+    String escape(Object? value) =>
+        '"${'$value'.replaceAll('"', '""').replaceAll('\n', ' ').replaceAll('\r', ' ')}"';
+    final buffer = StringBuffer()
+      ..writeln(columns.map((column) => escape(column.label)).join(','));
     for (final row in rows) {
-      buffer.writeln(columns.map((column) => escape(column.value(row) ?? '')).join(','));
+      buffer.writeln(
+          columns.map((column) => escape(column.value(row) ?? '')).join(','));
     }
-    final blob = html.Blob(<dynamic>[utf8.encode(buffer.toString())], 'text/csv;charset=utf-8');
+    final blob = html.Blob(
+        <dynamic>[utf8.encode(buffer.toString())], 'text/csv;charset=utf-8');
     final url = html.Url.createObjectUrlFromBlob(blob);
     html.AnchorElement(href: url)
       ..download = widget.exportFilename
@@ -191,7 +213,8 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
                         }
                       });
                       setState(() {});
-                      WidgetsBinding.instance.addPostFrameCallback((_) => _syncColumnVisibility());
+                      WidgetsBinding.instance
+                          .addPostFrameCallback((_) => _syncColumnVisibility());
                     },
                   );
                 }).toList(),
@@ -201,21 +224,29 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
           actions: [
             TextButton(
               onPressed: () {
-                setDialogState(() => _visibleColumnKeys = widget.columns.map((column) => column.key).toSet());
+                setDialogState(() => _visibleColumnKeys =
+                    widget.columns.map((column) => column.key).toSet());
                 setState(() {});
-                WidgetsBinding.instance.addPostFrameCallback((_) => _syncColumnVisibility());
+                WidgetsBinding.instance
+                    .addPostFrameCallback((_) => _syncColumnVisibility());
               },
               child: const Text('Show all'),
             ),
             TextButton(
               onPressed: () {
-                setDialogState(() => _visibleColumnKeys = widget.columns.where((column) => column.visibleByDefault).map((column) => column.key).toSet());
+                setDialogState(() => _visibleColumnKeys = widget.columns
+                    .where((column) => column.visibleByDefault)
+                    .map((column) => column.key)
+                    .toSet());
                 setState(() {});
-                WidgetsBinding.instance.addPostFrameCallback((_) => _syncColumnVisibility());
+                WidgetsBinding.instance
+                    .addPostFrameCallback((_) => _syncColumnVisibility());
               },
               child: const Text('Reset'),
             ),
-            FilledButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Done')),
+            FilledButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Done')),
           ],
         ),
       ),
@@ -224,9 +255,11 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
 
   void _onLoaded(PlutoGridOnLoadedEvent event) {
     _stateManager = event.stateManager;
-    _stateManager!.setShowColumnFilter(true);
+    _stateManager!.setShowColumnFilter(false);
     if (widget.initialSortColumnKey != null) {
-      final matching = _stateManager!.columns.where((column) => column.field == widget.initialSortColumnKey).toList();
+      final matching = _stateManager!.columns
+          .where((column) => column.field == widget.initialSortColumnKey)
+          .toList();
       if (matching.isNotEmpty) {
         _stateManager!.sortAscending(matching.first, notify: false);
         if (!widget.initialSortAscending) {
@@ -245,17 +278,37 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
   @override
   Widget build(BuildContext context) {
     final rows = _filteredRows;
-    final grid = rows.isEmpty
-        ? Center(child: Padding(padding: const EdgeInsets.all(32), child: Text(widget.emptyText)))
+    final grid = rows.isEmpty && !widget.isLoading
+        ? Center(
+            child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Text(widget.emptyText)))
         : PlutoGrid(
-            key: ValueKey('${widget.title}-${widget.rows.length}-${_search}-${_visibleColumnKeys.join('|')}'),
+            key: ValueKey(
+                '${widget.title}-${widget.rows.length}-$_search-${_visibleColumnKeys.join('|')}'),
             columns: _plutoColumns(),
             rows: _plutoRows(),
-            mode: widget.onRowTap == null ? PlutoGridMode.normal : PlutoGridMode.selectWithOneTap,
+            mode: widget.onRowTap == null
+                ? PlutoGridMode.normal
+                : PlutoGridMode.selectWithOneTap,
             onLoaded: _onLoaded,
             onSelected: _onSelected,
             configuration: PlutoGridConfiguration(
-              columnSize: const PlutoGridColumnSizeConfig(autoSizeMode: PlutoAutoSizeMode.none),
+              columnSize: const PlutoGridColumnSizeConfig(
+                  autoSizeMode: PlutoAutoSizeMode.none),
+              columnFilter: PlutoGridColumnFilterConfig(
+                filters: const [
+                  PlutoFilterTypeEquals(),
+                  PlutoFilterTypeStartsWith(),
+                  PlutoFilterTypeEndsWith(),
+                  PlutoFilterTypeGreaterThan(),
+                  PlutoFilterTypeGreaterThanOrEqualTo(),
+                  PlutoFilterTypeLessThan(),
+                  PlutoFilterTypeLessThanOrEqualTo(),
+                ],
+                resolveDefaultColumnFilter: (column, resolver) =>
+                    resolver<PlutoFilterTypeEquals>(),
+              ),
               style: PlutoGridStyleConfig(
                 rowHeight: widget.dense ? 34 : 42,
                 columnHeight: widget.dense ? 38 : 44,
@@ -278,7 +331,11 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(widget.title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                      Text(widget.title,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w700)),
                       if (widget.subtitle != null) ...[
                         const SizedBox(height: 4),
                         Text(widget.subtitle!),
@@ -286,20 +343,67 @@ class _TrustVaultDataGridState extends State<TrustVaultDataGrid> {
                     ],
                   ),
                 ),
-                Chip(label: Text('${rows.length} / ${widget.rows.length} rows')),
+                Chip(
+                    label: Text('${rows.length} / ${widget.rows.length} rows')),
                 const SizedBox(width: 8),
-                OutlinedButton.icon(onPressed: _showColumnPicker, icon: const Icon(Icons.view_column_outlined), label: const Text('Columns')),
+                OutlinedButton.icon(
+                    onPressed: _showColumnPicker,
+                    icon: const Icon(Icons.view_column_outlined),
+                    label: const Text('Columns')),
                 const SizedBox(width: 8),
-                OutlinedButton.icon(onPressed: rows.isEmpty ? null : _exportCsv, icon: const Icon(Icons.download_outlined), label: const Text('Export CSV')),
+                OutlinedButton.icon(
+                    onPressed: rows.isEmpty ? null : _exportCsv,
+                    icon: const Icon(Icons.download_outlined),
+                    label: const Text('Export CSV')),
               ],
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _searchController,
-              decoration: const InputDecoration(border: OutlineInputBorder(), prefixIcon: Icon(Icons.search), labelText: 'Search this grid'),
+              decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.search),
+                  labelText: 'Search this grid'),
             ),
             const SizedBox(height: 12),
-            SizedBox(height: widget.height, child: grid),
+            SizedBox(
+              height: widget.height,
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                      child: Opacity(
+                          opacity: widget.isLoading ? 0.55 : 1, child: grid)),
+                  if (widget.isLoading)
+                    Positioned.fill(
+                      child: ColoredBox(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surface
+                            .withValues(alpha: 0.35),
+                        child: Center(
+                          child: Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(18),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const SizedBox(
+                                      width: 22,
+                                      height: 22,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2)),
+                                  const SizedBox(width: 12),
+                                  Text(widget.loadingText),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ],
         ),
       ),

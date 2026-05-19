@@ -4,8 +4,8 @@ import base64
 import hashlib
 import hmac
 import json
-import os
 import secrets
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -164,7 +164,11 @@ class LocalAuthService:
 
     def current_user_from_token(self, token: str) -> User:
         payload = decode_access_token(token)
-        user = self.db.get(User, payload.get("sub"))
+        try:
+            user_id = uuid.UUID(str(payload.get("sub")))
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token subject") from exc
+        user = self.db.get(User, user_id)
         if user is None or user.status != "active":
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User is not active")
         return user

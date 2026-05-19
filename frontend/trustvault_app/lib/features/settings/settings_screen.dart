@@ -29,7 +29,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _reload() {
     _settingsFuture = _apiClient.getSettings();
     _autoIngestionFuture = _apiClient.getAutoIngestionStatus();
-    _documentClassificationFuture = _apiClient.getDocumentClassificationSettings();
+    _documentClassificationFuture =
+        _apiClient.getDocumentClassificationSettings();
   }
 
   Future<void> _refresh() async {
@@ -52,7 +53,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final response = await _apiClient.updateSettings(_pendingUpdates);
       if (!mounted) return;
       setState(() {
-        _message = 'Updated ${response['updated_count'] ?? _pendingUpdates.length} setting(s). Some changes may require API/worker restart if they affect process-level configuration.';
+        _message =
+            'Updated ${response['updated_count'] ?? _pendingUpdates.length} setting(s). Some changes may require API/worker restart if they affect process-level configuration.';
         _pendingUpdates = <String, dynamic>{};
         _saving = false;
         _reload();
@@ -75,7 +77,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final response = await _apiClient.scanAutoIngestionFolder();
       if (!mounted) return;
       setState(() {
-        _message = 'Scan complete. Processed: ${response['processed_count'] ?? 0}; failed: ${response['failed_count'] ?? 0}.';
+        _message =
+            'Scan complete. Processed: ${response['processed_count'] ?? 0}; failed: ${response['failed_count'] ?? 0}.';
         _autoIngestionFuture = _apiClient.getAutoIngestionStatus();
       });
     } catch (error) {
@@ -92,24 +95,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final response = await _apiClient.queueAutoIngestionScan();
       if (!mounted) return;
-      setState(() => _message = 'Queued automatic ingestion scan job ${response['id'] ?? ''}.');
+      setState(() => _message =
+          'Queued automatic ingestion scan job ${response['id'] ?? ''}.');
     } catch (error) {
       if (!mounted) return;
       setState(() => _error = '$error');
     }
   }
 
-  Future<void> _saveDocumentClassificationConfig(Map<String, dynamic> config) async {
+  Future<void> _saveDocumentClassificationConfig(
+      Map<String, dynamic> config) async {
     setState(() {
       _saving = true;
       _message = null;
       _error = null;
     });
     try {
-      final response = await _apiClient.updateDocumentClassificationSettings(config);
+      final response =
+          await _apiClient.updateDocumentClassificationSettings(config);
       if (!mounted) return;
       setState(() {
-        _message = 'Updated ${(response['document_types'] as List<dynamic>? ?? <dynamic>[]).length} document type mapping(s).';
+        _message =
+            'Updated ${(response['document_types'] as List<dynamic>? ?? <dynamic>[]).length} document type mapping(s).';
         _saving = false;
         _reload();
       });
@@ -142,41 +149,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Settings', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
+                      Text('Settings',
+                          style: Theme.of(context)
+                              .textTheme
+                              .displaySmall
+                              ?.copyWith(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 8),
-                      const Text('Manage safe runtime configuration and document classification mappings. Secrets remain environment/secret-manager controlled.'),
+                      const Text(
+                          'Manage safe runtime configuration and document classification mappings. Secrets remain environment/secret-manager controlled.'),
                     ],
                   ),
                 ),
-                OutlinedButton.icon(onPressed: _refresh, icon: const Icon(Icons.refresh), label: const Text('Refresh')),
+                OutlinedButton.icon(
+                    onPressed: _refresh,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Refresh')),
                 const SizedBox(width: 12),
                 FilledButton.icon(
-                  onPressed: !isAdmin || _saving || _pendingUpdates.isEmpty ? null : _save,
-                  icon: _saving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save_outlined),
-                  label: Text(_pendingUpdates.isEmpty ? 'No changes' : 'Save ${_pendingUpdates.length} change(s)'),
+                  onPressed: !isAdmin || _saving || _pendingUpdates.isEmpty
+                      ? null
+                      : _save,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.save_outlined),
+                  label: Text(_pendingUpdates.isEmpty
+                      ? 'No changes'
+                      : 'Save ${_pendingUpdates.length} change(s)'),
                 ),
               ],
             ),
             const SizedBox(height: 16),
             if (_message != null) _Banner(message: _message!, positive: true),
             if (_error != null) _Banner(message: _error!, positive: false),
-            if (!isAdmin) const _Banner(message: 'Admin role required to update settings. Current values are read-only.', positive: false),
+            if (!isAdmin)
+              const _Banner(
+                  message:
+                      'Admin role required to update settings. Current values are read-only.',
+                  positive: false),
             const SizedBox(height: 16),
-            _DocumentClassificationCard(future: _documentClassificationFuture, editable: isAdmin && !_saving, onSave: _saveDocumentClassificationConfig),
+            _DocumentClassificationCard(
+                future: _documentClassificationFuture,
+                editable: isAdmin && !_saving,
+                onSave: _saveDocumentClassificationConfig),
             const SizedBox(height: 16),
-            _AutoIngestionStatusCard(future: _autoIngestionFuture, onScanNow: isAdmin ? _scanNow : null, onQueueScan: isAdmin ? _queueScan : null),
+            _AutoIngestionStatusCard(
+                future: _autoIngestionFuture,
+                onScanNow: isAdmin ? _scanNow : null,
+                onQueueScan: isAdmin ? _queueScan : null),
             const SizedBox(height: 16),
             FutureBuilder<Map<String, dynamic>>(
               future: _settingsFuture,
               builder: (context, snapshot) {
-                if (snapshot.connectionState != ConnectionState.done) return const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()));
-                if (snapshot.hasError) return Center(child: Text('Unable to load settings: ${snapshot.error}'));
-                final categories = (snapshot.data?['categories'] as Map<String, dynamic>? ?? <String, dynamic>{});
-                if (categories.isEmpty) return const Center(child: Text('No settings returned by API.'));
+                if (snapshot.connectionState != ConnectionState.done)
+                  return const Center(
+                      child: Padding(
+                          padding: EdgeInsets.all(48),
+                          child: CircularProgressIndicator()));
+                if (snapshot.hasError)
+                  return Center(
+                      child:
+                          Text('Unable to load settings: ${snapshot.error}'));
+                final categories =
+                    (snapshot.data?['categories'] as Map<String, dynamic>? ??
+                        <String, dynamic>{});
+                if (categories.isEmpty)
+                  return const Center(
+                      child: Text('No settings returned by API.'));
                 return Column(
                   children: categories.entries.map((entry) {
-                    final items = (entry.value as List<dynamic>? ?? <dynamic>[]).whereType<Map<String, dynamic>>().toList();
-                    return _SettingsCategoryCard(category: entry.key, items: items, pendingUpdates: _pendingUpdates, editable: isAdmin, onChanged: _recordChange);
+                    final items = (entry.value as List<dynamic>? ?? <dynamic>[])
+                        .whereType<Map<String, dynamic>>()
+                        .toList();
+                    return _SettingsCategoryCard(
+                        category: entry.key,
+                        items: items,
+                        pendingUpdates: _pendingUpdates,
+                        editable: isAdmin,
+                        onChanged: _recordChange);
                   }).toList(),
                 );
               },
@@ -189,7 +241,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 }
 
 class _DocumentClassificationCard extends StatelessWidget {
-  const _DocumentClassificationCard({required this.future, required this.editable, required this.onSave});
+  const _DocumentClassificationCard(
+      {required this.future, required this.editable, required this.onSave});
 
   final Future<Map<String, dynamic>> future;
   final bool editable;
@@ -203,24 +256,42 @@ class _DocumentClassificationCard extends StatelessWidget {
         child: FutureBuilder<Map<String, dynamic>>(
           future: future,
           builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
-            if (snapshot.hasError) return Text('Document classification settings unavailable: ${snapshot.error}');
-            final config = (snapshot.data?['config'] as Map<String, dynamic>? ?? <String, dynamic>{});
-            final documentTypes = (snapshot.data?['document_types'] as List<dynamic>? ?? <dynamic>[]).whereType<Map<String, dynamic>>().toList();
+            if (snapshot.connectionState != ConnectionState.done)
+              return const LinearProgressIndicator();
+            if (snapshot.hasError)
+              return Text(
+                  'Document classification settings unavailable: ${snapshot.error}');
+            final config = (snapshot.data?['config'] as Map<String, dynamic>? ??
+                <String, dynamic>{});
+            final documentTypes =
+                (snapshot.data?['document_types'] as List<dynamic>? ??
+                        <dynamic>[])
+                    .whereType<Map<String, dynamic>>()
+                    .toList();
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
                     Expanded(
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text('Document classification', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
-                        const SizedBox(height: 6),
-                        const Text('Document Types are mapped to Categories. Filename patterns are used during ingestion before manual categorisation.'),
-                      ]),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Document classification',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleLarge
+                                    ?.copyWith(fontWeight: FontWeight.w700)),
+                            const SizedBox(height: 6),
+                            const Text(
+                                'Document Types are mapped to Categories. Filename patterns are used during ingestion before manual categorisation.'),
+                          ]),
                     ),
                     OutlinedButton.icon(
-                      onPressed: editable ? () => _showAddMappingDialog(context, config, documentTypes) : null,
+                      onPressed: editable
+                          ? () => _showAddMappingDialog(
+                              context, config, documentTypes)
+                          : null,
                       icon: const Icon(Icons.add),
                       label: const Text('Add mapping'),
                     ),
@@ -236,11 +307,17 @@ class _DocumentClassificationCard extends StatelessWidget {
                       DataColumn(label: Text('Filename patterns')),
                     ],
                     rows: documentTypes.map((item) {
-                      final patterns = (item['filename_patterns'] as List<dynamic>? ?? <dynamic>[]).join(', ');
+                      final patterns =
+                          (item['filename_patterns'] as List<dynamic>? ??
+                                  <dynamic>[])
+                              .join(', ');
                       return DataRow(cells: [
                         DataCell(Text('${item['document_type'] ?? ''}')),
                         DataCell(Text('${item['category'] ?? ''}')),
-                        DataCell(SizedBox(width: 520, child: Text(patterns, overflow: TextOverflow.ellipsis))),
+                        DataCell(SizedBox(
+                            width: 520,
+                            child: Text(patterns,
+                                overflow: TextOverflow.ellipsis))),
                       ]);
                     }).toList(),
                   ),
@@ -253,7 +330,10 @@ class _DocumentClassificationCard extends StatelessWidget {
     );
   }
 
-  Future<void> _showAddMappingDialog(BuildContext context, Map<String, dynamic> config, List<Map<String, dynamic>> documentTypes) async {
+  Future<void> _showAddMappingDialog(
+      BuildContext context,
+      Map<String, dynamic> config,
+      List<Map<String, dynamic>> documentTypes) async {
     final documentTypeController = TextEditingController();
     final categoryController = TextEditingController();
     final patternsController = TextEditingController();
@@ -266,23 +346,41 @@ class _DocumentClassificationCard extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: documentTypeController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Document Type')),
+              TextField(
+                  controller: documentTypeController,
+                  decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      labelText: 'Document Type')),
               const SizedBox(height: 12),
-              TextField(controller: categoryController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Category')),
+              TextField(
+                  controller: categoryController,
+                  decoration: const InputDecoration(
+                      border: OutlineInputBorder(), labelText: 'Category')),
               const SizedBox(height: 12),
-              TextField(controller: patternsController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Filename patterns, comma separated')),
+              TextField(
+                  controller: patternsController,
+                  decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      labelText: 'Filename patterns, comma separated')),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel')),
           FilledButton(
             onPressed: () {
-              if (documentTypeController.text.trim().isEmpty || categoryController.text.trim().isEmpty) return;
+              if (documentTypeController.text.trim().isEmpty ||
+                  categoryController.text.trim().isEmpty) return;
               Navigator.of(context).pop(<String, dynamic>{
                 'document_type': documentTypeController.text.trim(),
                 'category': categoryController.text.trim(),
-                'filename_patterns': patternsController.text.split(',').map((value) => value.trim()).where((value) => value.isNotEmpty).toList(),
+                'filename_patterns': patternsController.text
+                    .split(',')
+                    .map((value) => value.trim())
+                    .where((value) => value.isNotEmpty)
+                    .toList(),
               });
             },
             child: const Text('Add'),
@@ -295,13 +393,19 @@ class _DocumentClassificationCard extends StatelessWidget {
     patternsController.dispose();
     if (result == null) return;
     final nextConfig = Map<String, dynamic>.from(config);
-    nextConfig['document_types'] = <Map<String, dynamic>>[...documentTypes, result];
+    nextConfig['document_types'] = <Map<String, dynamic>>[
+      ...documentTypes,
+      result
+    ];
     await onSave(nextConfig);
   }
 }
 
 class _AutoIngestionStatusCard extends StatelessWidget {
-  const _AutoIngestionStatusCard({required this.future, required this.onScanNow, required this.onQueueScan});
+  const _AutoIngestionStatusCard(
+      {required this.future,
+      required this.onScanNow,
+      required this.onQueueScan});
 
   final Future<Map<String, dynamic>> future;
   final VoidCallback? onScanNow;
@@ -315,11 +419,17 @@ class _AutoIngestionStatusCard extends StatelessWidget {
         child: FutureBuilder<Map<String, dynamic>>(
           future: future,
           builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
-            if (snapshot.hasError) return Text('Automatic ingestion status unavailable: ${snapshot.error}');
+            if (snapshot.connectionState != ConnectionState.done)
+              return const LinearProgressIndicator();
+            if (snapshot.hasError)
+              return Text(
+                  'Automatic ingestion status unavailable: ${snapshot.error}');
             final data = snapshot.data ?? <String, dynamic>{};
-            final folders = (data['folders'] as Map<String, dynamic>? ?? <String, dynamic>{});
-            final folderState = (data['folder_state'] as Map<String, dynamic>? ?? <String, dynamic>{});
+            final folders = (data['folders'] as Map<String, dynamic>? ??
+                <String, dynamic>{});
+            final folderState =
+                (data['folder_state'] as Map<String, dynamic>? ??
+                    <String, dynamic>{});
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -329,19 +439,31 @@ class _AutoIngestionStatusCard extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Automatic source-folder ingestion', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                          Text('Automatic source-folder ingestion',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleLarge
+                                  ?.copyWith(fontWeight: FontWeight.w700)),
                           const SizedBox(height: 6),
                           Wrap(spacing: 8, runSpacing: 8, children: [
                             Chip(label: Text('Enabled: ${data['enabled']}')),
                             Chip(label: Text('Poll: ${data['poll_seconds']}s')),
-                            Chip(label: Text('Strict structure: ${data['strict_structure']}')),
+                            Chip(
+                                label: Text(
+                                    'Strict structure: ${data['strict_structure']}')),
                           ]),
                         ],
                       ),
                     ),
-                    OutlinedButton.icon(onPressed: onQueueScan, icon: const Icon(Icons.schedule), label: const Text('Queue scan job')),
+                    OutlinedButton.icon(
+                        onPressed: onQueueScan,
+                        icon: const Icon(Icons.schedule),
+                        label: const Text('Queue scan job')),
                     const SizedBox(width: 8),
-                    FilledButton.icon(onPressed: onScanNow, icon: const Icon(Icons.play_arrow), label: const Text('Scan now')),
+                    FilledButton.icon(
+                        onPressed: onScanNow,
+                        icon: const Icon(Icons.play_arrow),
+                        label: const Text('Scan now')),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -349,18 +471,30 @@ class _AutoIngestionStatusCard extends StatelessWidget {
                   spacing: 10,
                   runSpacing: 10,
                   children: folders.entries.map((entry) {
-                    final state = folderState[entry.key] as Map<String, dynamic>? ?? <String, dynamic>{};
+                    final state =
+                        folderState[entry.key] as Map<String, dynamic>? ??
+                            <String, dynamic>{};
                     return Container(
                       width: 330,
                       padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(border: Border.all(color: Theme.of(context).colorScheme.outlineVariant), borderRadius: BorderRadius.circular(12)),
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(_label(entry.key), style: const TextStyle(fontWeight: FontWeight.w700)),
-                        const SizedBox(height: 4),
-                        SelectableText('${entry.value}', maxLines: 2),
-                        const SizedBox(height: 4),
-                        Text('Exists: ${state['exists'] ?? false} · ZIPs: ${state['zip_count'] ?? 0}', style: Theme.of(context).textTheme.bodySmall),
-                      ]),
+                      decoration: BoxDecoration(
+                          border: Border.all(
+                              color:
+                                  Theme.of(context).colorScheme.outlineVariant),
+                          borderRadius: BorderRadius.circular(12)),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(_label(entry.key),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w700)),
+                            const SizedBox(height: 4),
+                            SelectableText('${entry.value}', maxLines: 2),
+                            const SizedBox(height: 4),
+                            Text(
+                                'Exists: ${state['exists'] ?? false} · ZIPs: ${state['zip_count'] ?? 0}',
+                                style: Theme.of(context).textTheme.bodySmall),
+                          ]),
                     );
                   }).toList(),
                 ),
@@ -374,7 +508,12 @@ class _AutoIngestionStatusCard extends StatelessWidget {
 }
 
 class _SettingsCategoryCard extends StatelessWidget {
-  const _SettingsCategoryCard({required this.category, required this.items, required this.pendingUpdates, required this.editable, required this.onChanged});
+  const _SettingsCategoryCard(
+      {required this.category,
+      required this.items,
+      required this.pendingUpdates,
+      required this.editable,
+      required this.onChanged});
 
   final String category;
   final List<Map<String, dynamic>> items;
@@ -391,9 +530,17 @@ class _SettingsCategoryCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(category, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+            Text(category,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: 12),
-            ...items.map((item) => _SettingRow(item: item, pendingValue: pendingUpdates[item['key']], editable: editable, onChanged: onChanged)),
+            ...items.map((item) => _SettingRow(
+                item: item,
+                pendingValue: pendingUpdates[item['key']],
+                editable: editable,
+                onChanged: onChanged)),
           ],
         ),
       ),
@@ -402,7 +549,11 @@ class _SettingsCategoryCard extends StatelessWidget {
 }
 
 class _SettingRow extends StatefulWidget {
-  const _SettingRow({required this.item, required this.pendingValue, required this.editable, required this.onChanged});
+  const _SettingRow(
+      {required this.item,
+      required this.pendingValue,
+      required this.editable,
+      required this.onChanged});
 
   final Map<String, dynamic> item;
   final dynamic pendingValue;
@@ -419,14 +570,16 @@ class _SettingRowState extends State<_SettingRow> {
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: '${widget.pendingValue ?? widget.item['value'] ?? ''}');
+    _controller = TextEditingController(
+        text: '${widget.pendingValue ?? widget.item['value'] ?? ''}');
   }
 
   @override
   void didUpdateWidget(covariant _SettingRow oldWidget) {
     super.didUpdateWidget(oldWidget);
     final nextText = '${widget.pendingValue ?? widget.item['value'] ?? ''}';
-    if (_controller.text != nextText && widget.pendingValue == null) _controller.text = nextText;
+    if (_controller.text != nextText && widget.pendingValue == null)
+      _controller.text = nextText;
   }
 
   @override
@@ -439,7 +592,9 @@ class _SettingRowState extends State<_SettingRow> {
   Widget build(BuildContext context) {
     final keyName = '${widget.item['key']}';
     final valueType = '${widget.item['value_type']}';
-    final canEdit = widget.editable && widget.item['editable'] == true && widget.item['secret'] != true;
+    final canEdit = widget.editable &&
+        widget.item['editable'] == true &&
+        widget.item['secret'] != true;
     final hasPending = widget.pendingValue != null;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -448,16 +603,30 @@ class _SettingRowState extends State<_SettingRow> {
         children: [
           SizedBox(
             width: 280,
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(keyName, style: const TextStyle(fontWeight: FontWeight.w700)),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(keyName,
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
               const SizedBox(height: 4),
-              Text('${widget.item['description'] ?? ''}', style: Theme.of(context).textTheme.bodySmall),
+              Text('${widget.item['description'] ?? ''}',
+                  style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 4),
               Wrap(spacing: 6, children: [
-                Chip(label: Text('${widget.item['source']}'), visualDensity: VisualDensity.compact),
-                if (widget.item['secret'] == true) const Chip(label: Text('secret'), visualDensity: VisualDensity.compact),
-                if (!canEdit) const Chip(label: Text('read-only'), visualDensity: VisualDensity.compact),
-                if (hasPending) const Chip(label: Text('changed'), visualDensity: VisualDensity.compact),
+                Chip(
+                    label: Text('${widget.item['source']}'),
+                    visualDensity: VisualDensity.compact),
+                if (widget.item['secret'] == true)
+                  const Chip(
+                      label: Text('secret'),
+                      visualDensity: VisualDensity.compact),
+                if (!canEdit)
+                  const Chip(
+                      label: Text('read-only'),
+                      visualDensity: VisualDensity.compact),
+                if (hasPending)
+                  const Chip(
+                      label: Text('changed'),
+                      visualDensity: VisualDensity.compact),
               ]),
             ]),
           ),
@@ -470,15 +639,27 @@ class _SettingRowState extends State<_SettingRow> {
 
   Widget _editorFor(String keyName, String valueType, bool canEdit) {
     if (valueType == 'bool') {
-      final current = widget.pendingValue is bool ? widget.pendingValue as bool : '${widget.item['value']}'.toLowerCase() == 'true';
-      return Align(alignment: Alignment.centerLeft, child: Switch(value: current, onChanged: canEdit ? (value) => widget.onChanged(keyName, value) : null));
+      final current = widget.pendingValue is bool
+          ? widget.pendingValue as bool
+          : '${widget.item['value']}'.toLowerCase() == 'true';
+      return Align(
+          alignment: Alignment.centerLeft,
+          child: Switch(
+              value: current,
+              onChanged: canEdit
+                  ? (value) => widget.onChanged(keyName, value)
+                  : null));
     }
     return TextField(
       controller: _controller,
       enabled: canEdit,
-      decoration: InputDecoration(border: const OutlineInputBorder(), labelText: valueType == 'int' ? 'Integer value' : 'Value'),
-      keyboardType: valueType == 'int' ? TextInputType.number : TextInputType.text,
-      onChanged: (value) => widget.onChanged(keyName, valueType == 'int' ? int.tryParse(value) ?? value : value),
+      decoration: InputDecoration(
+          border: const OutlineInputBorder(),
+          labelText: valueType == 'int' ? 'Integer value' : 'Value'),
+      keyboardType:
+          valueType == 'int' ? TextInputType.number : TextInputType.text,
+      onChanged: (value) => widget.onChanged(
+          keyName, valueType == 'int' ? int.tryParse(value) ?? value : value),
     );
   }
 }
@@ -496,12 +677,24 @@ class _Banner extends StatelessWidget {
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: positive ? scheme.primaryContainer : scheme.errorContainer, borderRadius: BorderRadius.circular(12)),
-      child: Text(message, style: TextStyle(color: positive ? scheme.onPrimaryContainer : scheme.onErrorContainer)),
+      decoration: BoxDecoration(
+          color: positive ? scheme.primaryContainer : scheme.errorContainer,
+          borderRadius: BorderRadius.circular(12)),
+      child: Text(message,
+          style: TextStyle(
+              color: positive
+                  ? scheme.onPrimaryContainer
+                  : scheme.onErrorContainer)),
     );
   }
 }
 
 String _label(String value) {
-  return value.replaceAll('_', ' ').split(' ').map((part) => part.isEmpty ? part : part.substring(0, 1).toUpperCase() + part.substring(1)).join(' ');
+  return value
+      .replaceAll('_', ' ')
+      .split(' ')
+      .map((part) => part.isEmpty
+          ? part
+          : part.substring(0, 1).toUpperCase() + part.substring(1))
+      .join(' ');
 }

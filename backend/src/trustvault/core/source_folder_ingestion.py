@@ -74,7 +74,7 @@ class SourceFolderIngestionService:
                 if name.endswith("/") or name.endswith(".search.txt"):
                     continue
                 relative = self._relative_path(name, root)
-                if relative.startswith("metadata/") and relative != "metadata/audit_events.json":
+                if relative == "customer.json" or (relative.startswith("metadata/") and relative != "metadata/audit_events.json"):
                     skipped_count += 1
                     continue
 
@@ -211,7 +211,7 @@ class SourceFolderIngestionService:
         return name[len(root) :] if root and name.startswith(root) else name
 
     def _read_customer_metadata(self, archive: zipfile.ZipFile, root: str) -> dict[str, Any]:
-        candidate_paths = [f"{root}metadata/customer.json", f"{root}customer.json"]
+        candidate_paths = [f"{root}customer.json", f"{root}metadata/customer.json"]
         for path in candidate_paths:
             try:
                 return json.loads(archive.read(path).decode("utf-8"))
@@ -315,7 +315,7 @@ class SourceFolderIngestionService:
         entity = self.db.scalars(select(Entity).where(Entity.external_id == external_id)).first()
         if entity is not None:
             entity.display_name = display_name
-            entity.entity_type = str(metadata.get("entity_type", entity.entity_type or "customer")).lower()
+            entity.entity_type = str(metadata.get("entity_type") or entity.entity_type or self._default_entity_type(external_id)).lower()
             existing = entity.metadata_json or {}
             existing_gaps = existing.get("assurance_gaps") if isinstance(existing.get("assurance_gaps"), list) else []
             unresolved_existing = [gap for gap in existing_gaps if gap.get("status") != "resolved" and gap.get("gap_key") != "customer_information_missing"]
@@ -325,7 +325,7 @@ class SourceFolderIngestionService:
         entity = Entity(
             external_id=external_id,
             display_name=display_name,
-            entity_type=str(metadata.get("entity_type", "customer")).lower(),
+            entity_type=str(metadata.get("entity_type") or self._default_entity_type(external_id)).lower(),
             status="active",
             metadata_json=entity_metadata,
         )
@@ -371,3 +371,6 @@ class SourceFolderIngestionService:
         existing = self.db.scalars(select(SourceSystem).where(SourceSystem.name == name)).first()
         if existing is None:
             self.db.add(SourceSystem(name=name, system_type="imported_source", status="active"))
+
+    def _default_entity_type(self, external_id: str) -> str:
+        return "organisation" if external_id.upper().startswith(("ORG-", "COMP-")) else "person"

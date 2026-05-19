@@ -6,9 +6,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from trustvault.api.dependencies import get_database
+from trustvault.auth.dependencies import require_permission
 from trustvault.db.models import AuditEvent
 
-router = APIRouter(prefix="/api/v1/audit", tags=["audit"])
+router = APIRouter(
+    prefix="/api/v1/audit",
+    tags=["audit"],
+    dependencies=[Depends(require_permission("audit:read"))],
+)
 
 
 class AuditEventResponse(BaseModel):
