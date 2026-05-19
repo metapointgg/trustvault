@@ -13,6 +13,7 @@ class _CategorisationScreenState extends State<CategorisationScreen> {
   final TrustVaultApiClient _apiClient = TrustVaultApiClient();
   late Future<void> _loadFuture;
   List<Map<String, dynamic>> _rows = <Map<String, dynamic>>[];
+  List<Map<String, dynamic>> _customerGapRows = <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _documentTypes = <Map<String, dynamic>>[];
   final Set<String> _selectedIds = <String>{};
   String? _message;
@@ -29,14 +30,23 @@ class _CategorisationScreenState extends State<CategorisationScreen> {
     final responses = await Future.wait<dynamic>([
       _apiClient.getUncategorisedEvidence(),
       _apiClient.getDocumentClassificationSettings(),
+      _apiClient.getCustomers(limit: 1000),
     ]);
-    final evidence = (responses[0] as List<dynamic>).cast<dynamic>();
+    final evidence = responses[0] as List<dynamic>;
     final settings = responses[1] as Map<String, dynamic>;
+    final customers = responses[2] as List<dynamic>;
     setState(() {
-      _rows = evidence.map((item) => (item as Map<String, dynamic>)).toList();
-      _documentTypes = ((settings['document_types'] as List<dynamic>? ?? <dynamic>[]).cast<Map<String, dynamic>>()).toList();
+      _rows = evidence.whereType<Map<String, dynamic>>().toList();
+      _documentTypes = (settings['document_types'] as List<dynamic>? ?? <dynamic>[]).whereType<Map<String, dynamic>>().toList();
+      _customerGapRows = customers.whereType<Map<String, dynamic>>().where(_hasOpenCustomerInformationGap).toList();
       _selectedIds.removeWhere((id) => !_rows.any((row) => row['evidence_object_id'] == id));
     });
+  }
+
+  bool _hasOpenCustomerInformationGap(Map<String, dynamic> row) {
+    final metadata = row['metadata_json'] as Map<String, dynamic>? ?? <String, dynamic>{};
+    final gaps = metadata['assurance_gaps'] as List<dynamic>? ?? <dynamic>[];
+    return gaps.whereType<Map<String, dynamic>>().any((gap) => gap['gap_key'] == 'customer_information_missing' && gap['status'] != 'resolved');
   }
 
   Future<void> _refresh() async {
@@ -54,7 +64,13 @@ class _CategorisationScreenState extends State<CategorisationScreen> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) {
-          final selectedMapping = _documentTypes.where((item) => item['document_type'] == selectedDocumentType).cast<Map<String, dynamic>?>().firstOrNull;
+          Map<String, dynamic>? selectedMapping;
+          for (final item in _documentTypes) {
+            if ('${item['document_type']}' == selectedDocumentType) {
+              selectedMapping = item;
+              break;
+            }
+          }
           return AlertDialog(
             title: const Text('Set document type'),
             content: SizedBox(
@@ -119,6 +135,80 @@ class _CategorisationScreenState extends State<CategorisationScreen> {
     }
   }
 
+  Future<void> _showCustomerInfoDialog(Map<String, dynamic> customer) async {
+    final displayNameController = TextEditingController(text: '${customer['display_name'] ?? ''}');
+    final entityTypeController = TextEditingController(text: '${customer['entity_type'] ?? 'customer'}');
+    final jurisdictionController = TextEditingController(text: '${customer['jurisdiction'] ?? ''}');
+    final riskRatingController = TextEditingController(text: '${customer['risk_rating'] ?? ''}');
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Resolve Customer Information assurance gap'),
+        content: SizedBox(
+          width: 560,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(controller: displayNameController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Display name')),
+              const SizedBox(height: 12),
+              TextField(controller: entityTypeController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Entity type')),
+              const SizedBox(height: 12),
+              TextField(controller: jurisdictionController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Jurisdiction')),
+              const SizedBox(height: 12),
+              TextField(controller: riskRatingController, decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Risk rating')),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              if (displayNameController.text.trim().isEmpty) return;
+              Navigator.of(context).pop(<String, dynamic>{
+                'display_name': displayNameController.text.trim(),
+                'entity_type': entityTypeController.text.trim().isEmpty ? 'customer' : entityTypeController.text.trim(),
+                'jurisdiction': jurisdictionController.text.trim(),
+                'risk_rating': riskRatingController.text.trim(),
+                'status': customer['status'] ?? 'active',
+                'metadata': <String, dynamic>{},
+                'rebuild_container': true,
+                'rebuild_index': true,
+              });
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    displayNameController.dispose();
+    entityTypeController.dispose();
+    jurisdictionController.dispose();
+    riskRatingController.dispose();
+    if (result == null) return;
+    await _updateCustomerInformation('${customer['id']}', result);
+  }
+
+  Future<void> _updateCustomerInformation(String customerId, Map<String, dynamic> data) async {
+    setState(() {
+      _saving = true;
+      _message = null;
+      _error = null;
+    });
+    try {
+      final response = await _apiClient.updateCustomerInformation(customerId: customerId, data: data);
+      setState(() {
+        _message = 'Resolved customer information gap for ${response['entity_external_id'] ?? customerId}.';
+        _saving = false;
+        _loadFuture = _load();
+      });
+    } catch (error) {
+      setState(() {
+        _error = '$error';
+        _saving = false;
+      });
+    }
+  }
+
   void _toggleRow(String id, bool selected) {
     setState(() {
       if (selected) {
@@ -156,7 +246,7 @@ class _CategorisationScreenState extends State<CategorisationScreen> {
                     children: [
                       Text('Categorisation', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 8),
-                      const Text('Review uncategorised evidence and set the Document Type. Category is derived from Settings.'),
+                      const Text('Review uncategorised evidence, set Document Type and resolve Customer Information assurance gaps.'),
                     ],
                   ),
                 ),
@@ -180,16 +270,69 @@ class _CategorisationScreenState extends State<CategorisationScreen> {
                   return const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()));
                 }
                 if (snapshot.hasError) return _Banner(message: 'Unable to load categorisation data: ${snapshot.error}', positive: false);
-                return _CategorisationTable(
-                  rows: _rows,
-                  selectedIds: _selectedIds,
-                  onToggleRow: _toggleRow,
-                  onToggleAll: _toggleAll,
+                return Column(
+                  children: [
+                    _CustomerInformationGapTable(rows: _customerGapRows, onResolve: _showCustomerInfoDialog),
+                    const SizedBox(height: 16),
+                    _CategorisationTable(
+                      rows: _rows,
+                      selectedIds: _selectedIds,
+                      onToggleRow: _toggleRow,
+                      onToggleAll: _toggleAll,
+                    ),
+                  ],
                 );
               },
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _CustomerInformationGapTable extends StatelessWidget {
+  const _CustomerInformationGapTable({required this.rows, required this.onResolve});
+
+  final List<Map<String, dynamic>> rows;
+  final void Function(Map<String, dynamic> row) onResolve;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(child: Text('Customer Information assurance gaps', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700))),
+            Chip(label: Text('${rows.length} open')),
+          ]),
+          const SizedBox(height: 12),
+          if (rows.isEmpty)
+            const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No open Customer Information assurance gaps.')))
+          else
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                columns: const [
+                  DataColumn(label: Text('Customer')),
+                  DataColumn(label: Text('Display name')),
+                  DataColumn(label: Text('Jurisdiction')),
+                  DataColumn(label: Text('Risk rating')),
+                  DataColumn(label: Text('Action')),
+                ],
+                rows: rows.map((row) {
+                  return DataRow(cells: [
+                    DataCell(Text('${row['external_id'] ?? ''}')),
+                    DataCell(Text('${row['display_name'] ?? ''}')),
+                    DataCell(Text('${row['jurisdiction'] ?? ''}')),
+                    DataCell(Text('${row['risk_rating'] ?? ''}')),
+                    DataCell(FilledButton(onPressed: () => onResolve(row), child: const Text('Resolve'))),
+                  ]);
+                }).toList(),
+              ),
+            ),
+        ]),
       ),
     );
   }
