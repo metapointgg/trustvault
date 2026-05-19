@@ -98,10 +98,10 @@ class LmStudioAiProvider(AiProvider):
         return AiResult(text=content, provider="lm_studio", model=payload.get("model", self.model), data=data)
 
     def summarise_evidence(self, evidence: list[dict], question: str | None = None) -> AiResult:
-        compact_evidence = self._compact_evidence(evidence, max_rows=10, max_text_chars=420)
+        compact_evidence = self._compact_evidence(evidence, max_rows=8, max_text_chars=260)
         payload, warning = self._post_chat(self._summary_prompt(compact_evidence, question, terse=False))
         if warning and self._looks_like_context_error(warning):
-            tiny_evidence = self._compact_evidence(evidence, max_rows=5, max_text_chars=220)
+            tiny_evidence = self._compact_evidence(evidence, max_rows=5, max_text_chars=160)
             payload, warning = self._post_chat(self._summary_prompt(tiny_evidence, question, terse=True))
         if warning:
             fallback = self._deterministic_summary(compact_evidence)
@@ -121,25 +121,41 @@ class LmStudioAiProvider(AiProvider):
 
     def _summary_prompt(self, evidence: list[dict[str, Any]], question: str | None, *, terse: bool) -> dict[str, Any]:
         system = (
-            "You summarise retrieved financial-services evidence for compliance and operations users. "
-            "Use only the supplied evidence rows. Do not invent facts. Entity metadata is authoritative. "
+            "You write a short narrative summary for a TrustVault search results page. "
+            "The evidence rows are already displayed to the user in a data grid, so do NOT reproduce the grid. "
+            "Never output a numbered list of individual evidence rows. Never list every filename, SHA-256 hash, object ID or row. "
+            "Use only the supplied evidence. Do not invent facts. Entity metadata is authoritative. "
             "OCR/extracted text may contain recognition errors, so present it cautiously. "
-            "Mention entities, document categories, document types, jurisdictions, risk ratings and key evidence themes. "
+            "Summarise the overall result set in one short paragraph followed by at most three concise bullets. "
+            "Mention only high-level patterns: number of entities, main evidence categories, document types, gaps or limitations. "
             "End with: Preserved FITS evidence and payload hashes remain the source of truth."
         )
         if terse:
             system = (
-                "Summarise the provided TrustVault evidence rows in one short paragraph and 3 bullets. "
-                "Do not invent facts. Use Entity terminology. End with: Preserved FITS evidence and payload hashes remain the source of truth."
+                "Summarise the TrustVault search result set in one short paragraph and at most 3 bullets. "
+                "Do not reproduce rows. Do not use numbered evidence lists. Do not include SHA-256 hashes. "
+                "Use Entity terminology. End with: Preserved FITS evidence and payload hashes remain the source of truth."
             )
         return {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system},
-                {"role": "user", "content": json.dumps({"question": question, "rows": evidence}, default=str, separators=(",", ":"))},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "question": question,
+                            "row_count": len(evidence),
+                            "sample_rows_for_context_only_not_for_listing": evidence,
+                            "instruction": "Provide a concise narrative overview only. The data grid will display the rows separately.",
+                        },
+                        default=str,
+                        separators=(",", ":"),
+                    ),
+                },
             ],
             "temperature": 0.1,
-            "max_tokens": 900,
+            "max_tokens": 420,
         }
 
     def _entity_profile_prompt(self, profile: dict[str, Any], question: str | None, *, terse: bool) -> dict[str, Any]:
@@ -211,7 +227,6 @@ class LmStudioAiProvider(AiProvider):
                     "type": row.get("document_type") or row.get("object_type"),
                     "jurisdiction": row.get("jurisdiction"),
                     "risk": row.get("risk_rating"),
-                    "sha256": row.get("sha256"),
                     "text": text[:max_text_chars],
                 }
             )
@@ -235,19 +250,14 @@ class LmStudioAiProvider(AiProvider):
 
     def _deterministic_summary(self, evidence: list[dict[str, Any]]) -> str:
         entities = sorted({str(row.get("entity") or "") for row in evidence if row.get("entity")})
-        names = sorted({str(row.get("name") or "") for row in evidence if row.get("name")})
         categories = sorted({str(row.get("category") or "") for row in evidence if row.get("category")})
-        files = [str(row.get("file")) for row in evidence if row.get("file")]
-        facts = [str(row.get("text")) for row in evidence if row.get("text")][:3]
-        lines = [f"TrustVault found {len(evidence)} evidence rows" + (f" across {', '.join(entities)}" if entities else "") + "."]
-        if names:
-            lines.append(f"Entities: {', '.join(names)}.")
+        document_types = sorted({str(row.get("type") or "") for row in evidence if row.get("type")})
+        lines = [f"TrustVault found {len(evidence)} representative evidence rows" + (f" across {len(entities)} entit{'y' if len(entities) == 1 else 'ies'}" if entities else "") + "."]
         if categories:
-            lines.append(f"Document categories include: {', '.join(categories)}.")
-        if files:
-            lines.append(f"Representative files include: {', '.join(files[:6])}.")
-        if facts:
-            lines.append("Key evidence text includes: " + " | ".join(facts)[:700] + ".")
+            lines.append(f"Document categories represented include: {', '.join(categories[:6])}.")
+        if document_types:
+            lines.append(f"Document types represented include: {', '.join(document_types[:8])}.")
+        lines.append("Use the data grid for the full row-level evidence list, filenames, previews and SHA-256 verification.")
         lines.append("Preserved FITS evidence and payload hashes remain the source of truth.")
         return "\n".join(lines)
 
