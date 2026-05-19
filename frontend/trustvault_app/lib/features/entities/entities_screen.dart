@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api/trustvault_api_client.dart';
+import '../../shared/evidence_pdf_viewer.dart';
 import '../../shared/selected_customer.dart';
 import '../../shared/trustvault_data_grid.dart';
 
@@ -137,7 +138,10 @@ class _EntitiesScreenState extends State<EntitiesScreen> {
       builder: (context) => AlertDialog(
         title: Text('${preview['filename'] ?? evidence['storage_uri'] ?? 'Evidence preview'}'),
         content: SizedBox(width: 920, height: 700, child: _EvidencePreviewBody(apiClient: _apiClient, preview: preview)),
-        actions: [TextButton.icon(onPressed: () => _open(_apiClient.evidenceFileUrl(objectId)), icon: const Icon(Icons.open_in_new), label: const Text('Open')), TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close'))],
+        actions: [
+          TextButton.icon(onPressed: () => _open(_apiClient.evidenceFileUrl(objectId)), icon: const Icon(Icons.open_in_new), label: const Text('Open')),
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close')),
+        ],
       ),
     );
   }
@@ -244,7 +248,7 @@ class _EvidencePreviewBody extends StatelessWidget {
     final kind = '${preview['preview_kind'] ?? 'binary'}';
     final objectId = '${preview['evidence_object_id']}';
     if (kind == 'image') return InteractiveViewer(child: Center(child: Image.network(apiClient.evidenceFileUrl(objectId), fit: BoxFit.contain)));
-    if (kind == 'pdf') return Center(child: FilledButton.icon(onPressed: null, icon: const Icon(Icons.picture_as_pdf_outlined), label: const Text('Use Open to view PDF in a new tab')));
+    if (kind == 'pdf') return EvidencePdfViewer(apiClient: apiClient, evidenceObjectId: objectId);
     final text = preview['safe_preview'] ?? preview['text_preview'];
     if (kind == 'eml' || kind == 'text') return SingleChildScrollView(child: SelectableText('$text'));
     return Center(child: Text('No inline preview is available for ${preview['content_type'] ?? 'this file type'}'));
