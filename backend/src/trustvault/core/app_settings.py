@@ -20,6 +20,11 @@ class SettingDefinition:
     secret: bool = False
 
 
+DEFAULT_SETTING_VALUES: dict[str, Any] = {
+    "client_industry": "financial_services",
+}
+
+
 SETTING_DEFINITIONS: list[SettingDefinition] = [
     SettingDefinition("environment", "Runtime", "string", "Deployment environment label.", editable=False),
     SettingDefinition("client_industry", "Client setup", "string", "Configured industry pack key used by query vocabulary and setup defaults."),
@@ -77,16 +82,7 @@ class AppSettingsService:
             value = self._coerce_value(raw_value, definition.value_type)
             row = self.db.get(AppSetting, key)
             if row is None:
-                row = AppSetting(
-                    key=key,
-                    value_json={"value": value},
-                    value_type=definition.value_type,
-                    category=definition.category,
-                    description=definition.description,
-                    is_secret=definition.secret,
-                    is_editable=definition.editable,
-                    updated_by_user_id=updated_by_user_id,
-                )
+                row = AppSetting(key=key, value_json={"value": value}, value_type=definition.value_type, category=definition.category, description=definition.description, is_secret=definition.secret, is_editable=definition.editable, updated_by_user_id=updated_by_user_id)
                 self.db.add(row)
             else:
                 row.value_json = {"value": value}
@@ -107,13 +103,13 @@ class AppSettingsService:
         row = self.db.get(AppSetting, key)
         if row is not None and isinstance(row.value_json, dict) and "value" in row.value_json:
             return row.value_json["value"]
-        return getattr(self.environment_settings, key)
+        return getattr(self.environment_settings, key, DEFAULT_SETTING_VALUES.get(key))
 
     def effective_values(self) -> dict[str, Any]:
         return {definition.key: self.effective_value(definition.key) for definition in SETTING_DEFINITIONS if not definition.secret}
 
     def _present_setting(self, definition: SettingDefinition, row: AppSetting | None) -> dict[str, Any]:
-        env_value = getattr(self.environment_settings, definition.key)
+        env_value = getattr(self.environment_settings, definition.key, DEFAULT_SETTING_VALUES.get(definition.key))
         if definition.secret:
             value = "********" if env_value else None
             source = "environment" if env_value else "unset"
@@ -122,20 +118,8 @@ class AppSettingsService:
             source = "database"
         else:
             value = env_value
-            source = "environment"
-        return {
-            "key": definition.key,
-            "category": definition.category,
-            "value": value,
-            "environment_value": "********" if definition.secret and env_value else env_value,
-            "value_type": definition.value_type,
-            "description": definition.description,
-            "editable": definition.editable,
-            "secret": definition.secret,
-            "source": source,
-            "updated_at": row.updated_at if row is not None else None,
-            "updated_by_user_id": row.updated_by_user_id if row is not None else None,
-        }
+            source = "environment" if hasattr(self.environment_settings, definition.key) else "default"
+        return {"key": definition.key, "category": definition.category, "value": value, "environment_value": "********" if definition.secret and env_value else env_value, "value_type": definition.value_type, "description": definition.description, "editable": definition.editable, "secret": definition.secret, "source": source, "updated_at": row.updated_at if row is not None else None, "updated_by_user_id": row.updated_by_user_id if row is not None else None}
 
     def _coerce_value(self, raw_value: Any, value_type: str) -> Any:
         if value_type == "bool":
