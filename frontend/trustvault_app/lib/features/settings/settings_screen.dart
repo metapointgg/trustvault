@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/trustvault_api_client.dart';
 import '../../core/auth/auth_controller.dart';
+import 'demo_archive_settings_card.dart';
+import 'industry_pack_editor_card.dart';
 import 'industry_pack_settings_card.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -145,7 +147,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Text('Settings', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 8),
-                      const Text('Manage safe runtime configuration, client industry packs and document classification mappings. Secrets remain environment/secret-manager controlled.'),
+                      const Text('Manage safe runtime configuration, client industry packs, static query data, demo archives and document classification mappings. Secrets remain environment/secret-manager controlled.'),
                     ],
                   ),
                 ),
@@ -164,6 +166,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             if (!isAdmin) const _Banner(message: 'Admin role required to update settings. Current values are read-only.', positive: false),
             const SizedBox(height: 16),
             IndustryPackSettingsCard(editable: isAdmin && !_saving),
+            const SizedBox(height: 16),
+            IndustryPackEditorCard(editable: isAdmin && !_saving),
+            const SizedBox(height: 16),
+            DemoArchiveSettingsCard(editable: isAdmin && !_saving),
             const SizedBox(height: 16),
             _DocumentClassificationCard(future: _documentClassificationFuture, editable: isAdmin && !_saving, onSave: _saveDocumentClassificationConfig),
             const SizedBox(height: 16),
