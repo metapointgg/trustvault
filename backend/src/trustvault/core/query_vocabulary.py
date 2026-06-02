@@ -6,8 +6,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from trustvault.core.app_settings import AppSettingsService
-from trustvault.core.industry_packs import get_industry_pack
+from trustvault.core.industry_pack_config import IndustryPackConfigService
 
 
 @dataclass(frozen=True)
@@ -35,18 +34,17 @@ class VocabularyMatch:
 class QueryVocabularyService:
     def __init__(self, db: Session):
         self.db = db
-        self.values = AppSettingsService(db).effective_values()
-        self.pack = get_industry_pack(str(self.values.get("client_industry") or "financial_services"))
+        self.pack = IndustryPackConfigService(db).active_pack()
 
     def active_pack(self) -> dict[str, Any]:
-        return self.pack.to_dict()
+        return self.pack
 
     def resolve(self, query: str) -> dict[str, Any]:
         matches = self.matches(query)
         filters = [m for m in matches if not m.is_requirement_dimension]
         requirements = [m for m in matches if m.is_requirement_dimension]
         return {
-            "industry_pack": self.pack.key,
+            "industry_pack": self.pack.get("key"),
             "filters": [m.to_dict() for m in filters],
             "requirements": [m.to_dict() for m in requirements],
             "matches": [m.to_dict() for m in matches],
@@ -56,46 +54,50 @@ class QueryVocabularyService:
         normalised = self._normalise(query)
         output: list[VocabularyMatch] = []
         seen: set[tuple[str, str]] = set()
-        for vocab in self.pack.vocabulary_lists:
-            for item in vocab.items:
-                candidates = (item.canonical_value, *item.aliases)
+        for vocab in self.pack.get("vocabulary_lists") or []:
+            for item in vocab.get("items") or []:
+                canonical = str(item.get("canonical_value") or "")
+                aliases = [str(alias) for alias in (item.get("aliases") or [])]
+                candidates = [canonical, *aliases]
                 for candidate in candidates:
                     candidate_norm = self._normalise(candidate)
                     if not candidate_norm:
                         continue
                     if self._contains_phrase(normalised, candidate_norm):
-                        key = (vocab.list_key, item.canonical_value)
+                        key = (str(vocab.get("list_key") or ""), canonical)
                         if key in seen:
                             continue
                         seen.add(key)
                         output.append(
                             VocabularyMatch(
-                                dimension=vocab.list_key,
-                                canonical_value=item.canonical_value,
+                                dimension=str(vocab.get("list_key") or ""),
+                                canonical_value=canonical,
                                 matched_alias=candidate,
-                                field_binding=vocab.field_binding,
+                                field_binding=vocab.get("field_binding"),
                                 match_type="phrase",
-                                confidence=1.0 if candidate == item.canonical_value else 0.92,
-                                is_requirement_dimension=vocab.is_requirement_dimension,
+                                confidence=1.0 if candidate == canonical else 0.92,
+                                is_requirement_dimension=bool(vocab.get("is_requirement_dimension")),
                             )
                         )
                         break
-        for group in self.pack.requirement_groups:
-            for candidate in (group.label, *group.aliases):
+        for group in self.pack.get("requirement_groups") or []:
+            label = str(group.get("label") or "")
+            aliases = [str(alias) for alias in (group.get("aliases") or [])]
+            for candidate in [label, *aliases]:
                 candidate_norm = self._normalise(candidate)
                 if candidate_norm and self._contains_phrase(normalised, candidate_norm):
-                    key = ("requirement_group", group.key)
+                    key = ("requirement_group", str(group.get("key") or label))
                     if key in seen:
                         continue
                     seen.add(key)
                     output.append(
                         VocabularyMatch(
                             dimension="requirement_group",
-                            canonical_value=group.label,
+                            canonical_value=label,
                             matched_alias=candidate,
                             field_binding=None,
                             match_type="phrase",
-                            confidence=1.0 if candidate == group.label else 0.92,
+                            confidence=1.0 if candidate == label else 0.92,
                             is_requirement_dimension=True,
                         )
                     )
@@ -118,11 +120,13 @@ class QueryVocabularyService:
                 overrides["jurisdiction"] = match["canonical_value"]
             if match["field_binding"] == "risk_rating":
                 overrides["risk_rating"] = match["canonical_value"]
-        if any(match["dimension"] == "requirement_group" and match["canonical_value"].lower() == "onboarding" for match in requirements):
-            overrides["snapshot_id"] = "ONBOARDING"
-            overrides["capability"] = "completeness_check"
-            overrides["completeness_only"] = True
-            overrides["missing_evidence_type"] = "mandatory_evidence"
+        for match in requirements:
+            if match["dimension"] == "requirement_group":
+                overrides["capability"] = "completeness_check"
+                overrides["completeness_only"] = True
+                overrides["missing_evidence_type"] = "mandatory_evidence"
+                if self._normalise(match["canonical_value"]) in {"onboarding", "patient onboarding", "supplier onboarding"}:
+                    overrides["snapshot_id"] = "ONBOARDING"
         document_requirements = [m["canonical_value"] for m in requirements if m["dimension"] == "document_type"]
         if document_requirements:
             overrides["document_types"] = document_requirements
