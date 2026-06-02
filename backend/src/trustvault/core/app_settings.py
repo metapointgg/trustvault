@@ -24,6 +24,8 @@ DEFAULT_SETTING_VALUES: dict[str, Any] = {
     "client_industry": "financial_services",
 }
 
+HIDDEN_GENERIC_SETTING_KEYS = {"client_industry"}
+
 
 SETTING_DEFINITIONS: list[SettingDefinition] = [
     SettingDefinition("environment", "Runtime", "string", "Deployment environment label.", editable=False),
@@ -67,11 +69,12 @@ class AppSettingsService:
 
     def list_settings(self) -> dict[str, Any]:
         stored = {row.key: row for row in self.db.scalars(select(AppSetting)).all()}
-        items = [self._present_setting(definition, stored.get(definition.key)) for definition in SETTING_DEFINITIONS]
+        all_items = [self._present_setting(definition, stored.get(definition.key)) for definition in SETTING_DEFINITIONS]
+        visible_items = [item for item in all_items if item["key"] not in HIDDEN_GENERIC_SETTING_KEYS]
         categories: dict[str, list[dict[str, Any]]] = {}
-        for item in items:
+        for item in visible_items:
             categories.setdefault(item["category"], []).append(item)
-        return {"categories": categories, "settings": items}
+        return {"categories": categories, "settings": visible_items, "all_settings": all_items}
 
     def update_settings(self, updates: dict[str, Any], *, updated_by_user_id: str | None = None) -> dict[str, Any]:
         changed: list[str] = []
