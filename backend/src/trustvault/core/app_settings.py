@@ -22,6 +22,7 @@ class SettingDefinition:
 
 SETTING_DEFINITIONS: list[SettingDefinition] = [
     SettingDefinition("environment", "Runtime", "string", "Deployment environment label.", editable=False),
+    SettingDefinition("client_industry", "Client setup", "string", "Configured industry pack key used by query vocabulary and setup defaults."),
     SettingDefinition("storage_provider", "Storage", "string", "Storage provider: local, s3 or azure."),
     SettingDefinition("local_storage_root", "Storage", "string", "Local storage root used for local deployments."),
     SettingDefinition("queue_provider", "Queue", "string", "Queue provider: database, sqs or azure."),
