@@ -2,13 +2,107 @@
 
 **TrustVault — secure evidence preservation, search and assurance for regulated entity records.**
 
-TrustVault is an evidence preservation and assurance platform for regulated financial-services organisations. It converts fragmented entity evidence from legacy systems, document stores, email archives, scanning processes and operational platforms into self-contained, verifiable **FITS evidence archives** with searchable metadata, completeness controls, audit trails, retention controls, integrity checks and regulator-ready export capability.
+TrustVault is an evidence preservation and assurance platform for regulated organisations. It converts fragmented entity evidence from legacy systems, document stores, email archives, scanning processes and operational platforms into self-contained, verifiable **FITS evidence archives** with searchable metadata, completeness controls, audit trails, retention controls, integrity checks and export capability.
 
 The core design principle is that the FITS archive remains the source of truth. PostgreSQL, indexes, summaries and UI views are operational projections that can be rebuilt from preserved evidence archives.
 
 ---
 
 ## Timestamped implementation log
+
+### 2026-06-02 — Industry packs and generic query vocabulary foundation
+
+Implemented the first pass of the industry-agnostic query vocabulary architecture on branch `trustvault-production-ready-reset`.
+
+This update moves TrustVault away from hardcoded query concepts such as fixed jurisdictions, banking-specific document types or sector-specific filters. The intended model is now:
+
+```text
+Natural language query
+  -> tokenisation / phrase extraction
+  -> intent detection
+  -> industry vocabulary resolution
+  -> static validation
+  -> structured query
+  -> execution engine
+```
+
+Key changes:
+
+1. Added `backend/src/trustvault/core/industry_packs.py`.
+2. Added `backend/src/trustvault/core/query_vocabulary.py`.
+3. Added a `client_industry` setting under **Client setup**.
+4. Added safe default behaviour so `client_industry` defaults to `financial_services` when no stored setting exists.
+5. Added industry-pack Settings APIs:
+   - `GET /api/v1/settings/industry-packs`
+   - `GET /api/v1/settings/industry-packs/active`
+   - `GET /api/v1/settings/industry-packs/{industry_key}`
+6. Added a runtime query vocabulary patch so the existing query route can apply validated industry vocabulary matches without rewriting the entire legacy query route immediately.
+7. Wired the query vocabulary patch into API startup through `backend/src/trustvault/api/main.py`.
+8. Added initial industry packs for:
+   - Financial Services
+   - Healthcare
+   - Supplier / Vendor Due Diligence
+   - Insurance
+   - Legal / Professional Services
+   - Corporate Services / Trust / Fiduciary
+   - Human Resources
+   - Property / Real Estate
+   - Education
+   - Charity / Non-Profit
+   - Public Sector / Government
+   - Retail / Consumer Operations
+   - Custom
+
+The first detailed vocabularies are Financial Services, Healthcare and Supplier / Vendor Due Diligence. Other industry packs currently have their setup shells in place and should be expanded with full vocabulary and requirement templates as product configuration matures.
+
+The immediate behavioural objective is that queries such as these are interpreted by structure plus configured vocabulary, not by hardcoded business logic:
+
+```text
+Are there any entities in Malta missing onboarding documentation?
+Which cancer patients are missing a consent form?
+Which patients in oncology are missing consent forms?
+Which of Dr Jones' patients are missing consent forms?
+Which IT suppliers have not supplied a certificate of incorporation?
+```
+
+The generic target structured query shape is:
+
+```json
+{
+  "intent": "missing_required_evidence",
+  "subject": {
+    "entity_type": "entity"
+  },
+  "filters": [
+    {
+      "dimension": "jurisdiction",
+      "operator": "equals",
+      "value": "Malta",
+      "matched_alias": "Malta",
+      "confidence": 1.0
+    }
+  ],
+  "requirement": {
+    "type": "requirement_group",
+    "value": "Onboarding"
+  },
+  "execution_route": "completeness"
+}
+```
+
+During the transition, the resolver also returns safe legacy structured-query overrides so the current execution engine can continue to run existing `StructuredQuery` requests. These overrides are populated only from validated vocabulary matches.
+
+Files touched or relevant to this update:
+
+```text
+backend/src/trustvault/core/industry_packs.py
+backend/src/trustvault/core/query_vocabulary.py
+backend/src/trustvault/core/app_settings.py
+backend/src/trustvault/api/routes/settings.py
+backend/src/trustvault/api/query_vocabulary_patch.py
+backend/src/trustvault/api/main.py
+README.md
+```
 
 ### 2026-05-19 — Categorisation, customer information assurance gaps and inline PDF evidence viewing
 
@@ -58,6 +152,112 @@ frontend/trustvault_app/lib/features/settings/settings_screen.dart
 frontend/trustvault_app/lib/shared/app_shell.dart
 frontend/trustvault_app/lib/shared/evidence_pdf_viewer.dart
 ```
+
+---
+
+## Industry packs and query vocabulary
+
+TrustVault is intended to be industry-agnostic. The query interpreter should understand query grammar and intent, while configuration defines business meaning.
+
+The principle is:
+
+```text
+The interpreter understands structure.
+The industry pack defines vocabulary.
+The execution engine enforces validated structured intent.
+```
+
+At setup, a client can be assigned an industry pack using the `client_industry` setting. The default is:
+
+```text
+financial_services
+```
+
+Supported industry keys are:
+
+```text
+financial_services
+healthcare
+supplier_due_diligence
+insurance
+legal_professional_services
+corporate_services
+human_resources
+property_real_estate
+education
+charity_non_profit
+public_sector
+retail_consumer_operations
+custom
+```
+
+Each industry pack may define:
+
+- entity type terms;
+- filter dimensions;
+- canonical vocabulary values;
+- aliases and alternate names;
+- document types;
+- requirement groups;
+- default requirement templates.
+
+Example Financial Services vocabulary:
+
+```text
+jurisdiction:
+  Guernsey, Jersey, United Kingdom, Isle of Man, Malta
+
+risk_rating:
+  High, Medium, Low, Critical
+
+document_type:
+  Passport, Proof of Address, Source of Funds, Source of Wealth,
+  Account Opening Application, CDD Review, Screening Evidence,
+  Certificate of Incorporation, Beneficial Ownership Evidence
+
+requirement_group:
+  Onboarding, KYC / CDD, Periodic Review
+```
+
+Example Healthcare vocabulary:
+
+```text
+entity_type:
+  Patient, Clinician, Department, Referral
+
+department:
+  Oncology, Cardiology, Radiology
+
+responsible_person:
+  Dr Jones, Dr Smith
+
+document_type:
+  Consent Form, Referral Letter, Treatment Plan, Diagnostic Report
+
+requirement_group:
+  Patient Onboarding, Treatment Consent
+```
+
+Example Supplier Due Diligence vocabulary:
+
+```text
+entity_type:
+  Supplier, Vendor, Contractor, Service Provider
+
+supplier_category:
+  IT, Legal, Facilities
+
+document_type:
+  Certificate of Incorporation, Insurance Certificate,
+  ISO 27001 Certificate, SOC 2 Report, Data Processing Agreement
+
+requirement_group:
+  Supplier Onboarding, Cyber Due Diligence
+```
+
+The resolver performs phrase matching against canonical values and aliases. It produces validated vocabulary matches and safe overrides for the current legacy query shape while the platform transitions towards a fully generic `filters[]` and `requirement` structured query object.
+
+Material filters must not be silently dropped. If a user asks for `Malta`, `Oncology`, `Dr Jones` or `IT suppliers`, TrustVault should either validate that value against configured vocabulary or report it as unresolved. It should not evaluate all entities simply because the filter was not recognised.
 
 ---
 
@@ -111,9 +311,9 @@ Classification now follows this order of preference:
 The intended operating model is that file names are meaningful enough to suggest document type:
 
 ```text
-mike_ozanne_passport.pdf       -> Passport          -> Identity
-mike_ozanne_utility_bill.pdf   -> Proof of Address  -> Address
-mike_ozanne_source_of_funds.pdf -> Source of Funds  -> Source of Funds
+mike_ozanne_passport.pdf        -> Passport          -> Identity
+mike_ozanne_utility_bill.pdf    -> Proof of Address  -> Address
+mike_ozanne_source_of_funds.pdf -> Source of Funds   -> Source of Funds
 ```
 
 Where classification is not possible, evidence appears in the Categorisation screen as uncategorised.
@@ -233,13 +433,6 @@ flutter pub get
 flutter run -d chrome --dart-define=TRUSTVAULT_API_BASE_URL=http://localhost:8000
 ```
 
-When dependencies change, run:
-
-```bash
-cd frontend/trustvault_app
-flutter pub get
-```
-
 When backend models or routes change, rebuild the containers:
 
 ```bash
@@ -281,15 +474,11 @@ The Entities screen shows entity metadata, risk rating, jurisdiction, evidence c
 
 ### Categorisation
 
-The Categorisation screen is the operational remediation point for:
-
-- uncategorised evidence;
-- manual document type assignment;
-- Customer Information assurance gaps created during ingestion.
+The Categorisation screen is the operational remediation point for uncategorised evidence, manual document type assignment and Customer Information assurance gaps created during ingestion.
 
 ### Completeness
 
-Completeness evaluates required evidence against configured rulesets. It supports archive-wide and selected-entity views, including filters for risk rating and jurisdiction.
+Completeness evaluates required evidence against configured rulesets. It supports archive-wide and selected-entity views.
 
 ### Rulesets
 
@@ -297,31 +486,11 @@ Rulesets define required evidence using rule key, category, document type, requi
 
 ### Search and query
 
-Search supports natural language query interpretation, selected-entity FITS search, cross-archive indexed search, completeness-style missing evidence queries and optional local AI summaries.
-
-### Extraction
-
-Extraction reports show OCR/search-text coverage, character counts, extraction status and extraction preview detail.
-
-### Retention and legal hold
-
-Retention views show retention class, retention-until date, legal hold state and deletion eligibility metadata.
-
-### Integrity
-
-Integrity checks validate preserved FITS containers and payload hashes.
-
-### Export
-
-Export supports downloading preserved FITS evidence archives. Derived regulator-ready packs remain a production enhancement area.
-
-### Audit
-
-Audit captures operational events such as ingestion, search, preview, export, settings and job activity.
+Search supports natural language query interpretation, selected-entity FITS search, cross-archive indexed search, completeness-style missing evidence queries and optional local AI summaries. The query layer now has an industry vocabulary resolver so sector-specific language can be configured rather than hardcoded.
 
 ### Settings
 
-Settings now include both runtime configuration and Document Classification mappings.
+Settings include runtime configuration, Document Classification mappings and the active client industry pack.
 
 ---
 
@@ -333,6 +502,9 @@ Representative API areas:
 /api/v1/auth/*
 /api/v1/settings/*
 /api/v1/settings/document-classification
+/api/v1/settings/industry-packs
+/api/v1/settings/industry-packs/active
+/api/v1/settings/industry-packs/{industry_key}
 /api/v1/health
 /api/v1/dashboard/summary
 /api/v1/customers
@@ -362,6 +534,8 @@ Useful smoke-test calls:
 curl -s "http://localhost:8000/api/v1/health" | python3 -m json.tool
 curl -s "http://localhost:8000/api/v1/customers" | python3 -m json.tool
 curl -s "http://localhost:8000/api/v1/settings/document-classification" | python3 -m json.tool
+curl -s "http://localhost:8000/api/v1/settings/industry-packs" | python3 -m json.tool
+curl -s "http://localhost:8000/api/v1/settings/industry-packs/active" | python3 -m json.tool
 curl -s "http://localhost:8000/api/v1/evidence/uncategorised" | python3 -m json.tool
 curl -s "http://localhost:8000/api/v1/completeness/summary" | python3 -m json.tool
 ```
@@ -409,6 +583,10 @@ The current application is a functional product foundation. Before production us
 - large batch ingestion and quarantine workflows;
 - malware scanning for ingested files;
 - stronger document classification governance and approval;
+- full industry-pack administration screens;
+- editable vocabulary aliases and client-specific overrides;
+- generic `filters[]` and `requirement` query object migration;
+- unresolved-filter warnings and fail-safe query handling;
 - ruleset lifecycle and approval workflow;
 - legal hold placement/removal workflow;
 - retention policy administration;
