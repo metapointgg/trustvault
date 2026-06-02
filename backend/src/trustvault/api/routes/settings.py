@@ -1,13 +1,13 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from trustvault.api.dependencies import get_current_user, get_database, require_admin
 from trustvault.core.app_settings import AppSettingsService
 from trustvault.core.document_classification import DocumentClassificationService
-from trustvault.core.industry_packs import get_industry_pack, list_industry_packs
+from trustvault.core.industry_pack_config import IndustryPackConfigService
 from trustvault.core.query_vocabulary import QueryVocabularyService
 from trustvault.db.models import User
 
@@ -20,6 +20,10 @@ class SettingsUpdateRequest(BaseModel):
 
 class DocumentClassificationSettingsRequest(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
+
+
+class IndustryPackUpdateRequest(BaseModel):
+    pack: dict[str, Any] = Field(default_factory=dict)
 
 
 @router.get("")
@@ -44,9 +48,7 @@ def get_industry_packs(
     db: Session = Depends(get_database),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    values = AppSettingsService(db).effective_values()
-    active_key = str(values.get("client_industry") or "financial_services")
-    return {"active_industry": active_key, "industry_packs": list_industry_packs()}
+    return IndustryPackConfigService(db).list_packs()
 
 
 @router.get("/industry-packs/active")
@@ -63,7 +65,29 @@ def get_industry_pack_by_key(
     db: Session = Depends(get_database),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    return get_industry_pack(industry_key).to_dict()
+    return IndustryPackConfigService(db).get_pack(industry_key)
+
+
+@router.put("/industry-packs/{industry_key}")
+def update_industry_pack_by_key(
+    industry_key: str,
+    request: IndustryPackUpdateRequest,
+    db: Session = Depends(get_database),
+    current_user: User = Depends(require_admin),
+) -> dict[str, Any]:
+    try:
+        return IndustryPackConfigService(db).save_pack(industry_key, request.pack, updated_by_user_id=str(current_user.id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/industry-packs/{industry_key}/override")
+def reset_industry_pack_by_key(
+    industry_key: str,
+    db: Session = Depends(get_database),
+    current_user: User = Depends(require_admin),
+) -> dict[str, Any]:
+    return IndustryPackConfigService(db).reset_pack(industry_key)
 
 
 @router.get("/document-classification")
