@@ -33,9 +33,7 @@ class _IndustryPackSettingsCardState extends State<IndustryPackSettingsCard> {
     ]);
     final packsResponse = results[0];
     final activePack = results[1];
-    final packs = (packsResponse['industry_packs'] as List<dynamic>? ?? <dynamic>[])
-        .whereType<Map<String, dynamic>>()
-        .toList();
+    final packs = (packsResponse['industry_packs'] as List<dynamic>? ?? <dynamic>[]).whereType<Map<String, dynamic>>().toList();
     final activeKey = '${packsResponse['active_industry'] ?? activePack['key'] ?? 'financial_services'}';
     _selectedIndustry ??= activeKey;
     return _IndustryPackSettingsData(packs: packs, activePack: activePack, activeIndustry: activeKey);
@@ -64,6 +62,7 @@ class _IndustryPackSettingsCardState extends State<IndustryPackSettingsCard> {
       setState(() {
         _message = 'Client industry updated to ${nextPack['label'] ?? selected}.';
         _saving = false;
+        _selectedIndustry = selected;
         _future = _load();
       });
     } catch (error) {
@@ -87,6 +86,10 @@ class _IndustryPackSettingsCardState extends State<IndustryPackSettingsCard> {
             if (snapshot.hasError) return Text('Industry pack settings unavailable: ${snapshot.error}');
             final data = snapshot.data!;
             final selected = _selectedIndustry ?? data.activeIndustry;
+            final selectedPack = data.packs.firstWhere(
+              (pack) => '${pack['key']}' == selected,
+              orElse: () => <String, dynamic>{'key': selected, 'label': selected, 'description': ''},
+            );
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -96,9 +99,9 @@ class _IndustryPackSettingsCardState extends State<IndustryPackSettingsCard> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Client industry and static query data', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                          Text('Client industry', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
                           const SizedBox(height: 6),
-                          const Text('Select the industry pack used by the query vocabulary resolver. The active pack defines entity terms, filter dimensions, aliases, document types and requirement groups.'),
+                          const Text('Select the industry pack used by query interpretation and static data setup.'),
                         ],
                       ),
                     ),
@@ -108,30 +111,37 @@ class _IndustryPackSettingsCardState extends State<IndustryPackSettingsCard> {
                 const SizedBox(height: 12),
                 if (_message != null) _InlineBanner(message: _message!, positive: true),
                 if (_error != null) _InlineBanner(message: _error!, positive: false),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    SizedBox(
-                      width: 420,
-                      child: DropdownButtonFormField<String>(
-                        value: selected,
-                        decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Client industry'),
-                        items: data.packs.map((pack) => DropdownMenuItem<String>(value: '${pack['key']}', child: Text('${pack['label']}'))).toList(),
-                        onChanged: widget.editable && !_saving ? (value) => setState(() => _selectedIndustry = value) : null,
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(border: Border.all(color: Theme.of(context).colorScheme.outlineVariant), borderRadius: BorderRadius.circular(12)),
+                  child: Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 430,
+                        child: DropdownButtonFormField<String>(
+                          value: selected,
+                          decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Client industry', helperText: 'Industry pack used by the query vocabulary resolver'),
+                          items: data.packs.map((pack) => DropdownMenuItem<String>(value: '${pack['key']}', child: Text('${pack['label']}'))).toList(),
+                          onChanged: widget.editable && !_saving ? (value) => setState(() => _selectedIndustry = value) : null,
+                        ),
                       ),
-                    ),
-                    FilledButton.icon(
-                      onPressed: widget.editable && !_saving && selected != data.activeIndustry ? _saveIndustry : null,
-                      icon: _saving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save_outlined),
-                      label: const Text('Apply industry'),
-                    ),
-                    Chip(label: Text('Active: ${data.activePack['label'] ?? data.activeIndustry}')),
-                  ],
+                      FilledButton.icon(
+                        onPressed: widget.editable && !_saving && selected != data.activeIndustry ? _saveIndustry : null,
+                        icon: _saving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save_outlined),
+                        label: const Text('Apply industry'),
+                      ),
+                      Chip(label: Text('Active: ${data.activePack['label'] ?? data.activeIndustry}')),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 16),
-                _ActiveIndustrySummary(pack: data.activePack),
+                const SizedBox(height: 10),
+                Text('${selectedPack['description'] ?? ''}', style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 18),
+                _StaticQueryDataPanel(pack: data.activePack),
               ],
             );
           },
@@ -141,8 +151,8 @@ class _IndustryPackSettingsCardState extends State<IndustryPackSettingsCard> {
   }
 }
 
-class _ActiveIndustrySummary extends StatelessWidget {
-  const _ActiveIndustrySummary({required this.pack});
+class _StaticQueryDataPanel extends StatelessWidget {
+  const _StaticQueryDataPanel({required this.pack});
 
   final Map<String, dynamic> pack;
 
@@ -151,19 +161,33 @@ class _ActiveIndustrySummary extends StatelessWidget {
     final entityTerms = (pack['entity_type_terms'] as List<dynamic>? ?? <dynamic>[]).map((item) => '$item').toList();
     final vocabularyLists = (pack['vocabulary_lists'] as List<dynamic>? ?? <dynamic>[]).whereType<Map<String, dynamic>>().toList();
     final requirementGroups = (pack['requirement_groups'] as List<dynamic>? ?? <dynamic>[]).whereType<Map<String, dynamic>>().toList();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('${pack['label'] ?? 'Active industry'} static data', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-        const SizedBox(height: 8),
-        Text('${pack['description'] ?? ''}'),
-        const SizedBox(height: 12),
-        _WrapSection(title: 'Entity terms', values: entityTerms),
-        const SizedBox(height: 12),
-        _VocabularyListsTable(vocabularyLists: vocabularyLists),
-        const SizedBox(height: 12),
-        _RequirementGroupsTable(requirementGroups: requirementGroups),
-      ],
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(border: Border.all(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35)), borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.dataset_outlined),
+              const SizedBox(width: 8),
+              Expanded(child: Text('Static query data', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800))),
+              Chip(label: Text('${vocabularyLists.length} vocabulary list(s)')),
+              const SizedBox(width: 8),
+              Chip(label: Text('${requirementGroups.length} requirement group(s)')),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text('Active pack: ${pack['label'] ?? pack['key'] ?? ''}. These values and aliases are used to validate natural-language filters and requirement terms.'),
+          const SizedBox(height: 14),
+          _WrapSection(title: 'Entity terms', values: entityTerms),
+          const SizedBox(height: 14),
+          _VocabularyListsTable(vocabularyLists: vocabularyLists),
+          const SizedBox(height: 14),
+          _RequirementGroupsTable(requirementGroups: requirementGroups),
+        ],
+      ),
     );
   }
 }
@@ -179,7 +203,7 @@ class _WrapSection extends StatelessWidget {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
       const SizedBox(height: 6),
-      Wrap(spacing: 8, runSpacing: 8, children: values.map((value) => Chip(label: Text(value))).toList()),
+      if (values.isEmpty) const Text('No values configured.') else Wrap(spacing: 8, runSpacing: 8, children: values.map((value) => Chip(label: Text(value))).toList()),
     ]);
   }
 }
@@ -194,29 +218,32 @@ class _VocabularyListsTable extends StatelessWidget {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text('Vocabulary lists', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
       const SizedBox(height: 6),
-      SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          columns: const [
-            DataColumn(label: Text('List')),
-            DataColumn(label: Text('Field binding')),
-            DataColumn(label: Text('Use')),
-            DataColumn(label: Text('Values and aliases')),
-          ],
-          rows: vocabularyLists.map((list) {
-            final items = (list['items'] as List<dynamic>? ?? <dynamic>[]).whereType<Map<String, dynamic>>().map((item) {
-              final aliases = (item['aliases'] as List<dynamic>? ?? <dynamic>[]).join(', ');
-              return aliases.isEmpty ? '${item['canonical_value']}' : '${item['canonical_value']} ($aliases)';
-            }).join(' · ');
-            return DataRow(cells: [
-              DataCell(Text('${list['label'] ?? list['list_key']}')),
-              DataCell(Text('${list['field_binding'] ?? '-'}')),
-              DataCell(Text(list['is_requirement_dimension'] == true ? 'Requirement' : 'Filter')),
-              DataCell(SizedBox(width: 760, child: Text(items, overflow: TextOverflow.ellipsis))),
-            ]);
-          }).toList(),
+      if (vocabularyLists.isEmpty)
+        const Text('No vocabulary lists configured for this pack yet.')
+      else
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            columns: const [
+              DataColumn(label: Text('List')),
+              DataColumn(label: Text('Field binding')),
+              DataColumn(label: Text('Use')),
+              DataColumn(label: Text('Values and aliases')),
+            ],
+            rows: vocabularyLists.map((list) {
+              final items = (list['items'] as List<dynamic>? ?? <dynamic>[]).whereType<Map<String, dynamic>>().map((item) {
+                final aliases = (item['aliases'] as List<dynamic>? ?? <dynamic>[]).join(', ');
+                return aliases.isEmpty ? '${item['canonical_value']}' : '${item['canonical_value']} ($aliases)';
+              }).join(' · ');
+              return DataRow(cells: [
+                DataCell(Text('${list['label'] ?? list['list_key']}')),
+                DataCell(Text('${list['field_binding'] ?? '-'}')),
+                DataCell(Text(list['is_requirement_dimension'] == true ? 'Requirement' : 'Filter')),
+                DataCell(SizedBox(width: 760, child: Text(items, overflow: TextOverflow.ellipsis))),
+              ]);
+            }).toList(),
+          ),
         ),
-      ),
     ]);
   }
 }
@@ -231,21 +258,24 @@ class _RequirementGroupsTable extends StatelessWidget {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text('Requirement groups', style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
       const SizedBox(height: 6),
-      SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
-          columns: const [
-            DataColumn(label: Text('Group')),
-            DataColumn(label: Text('Aliases')),
-            DataColumn(label: Text('Default document types')),
-          ],
-          rows: requirementGroups.map((group) => DataRow(cells: [
-                DataCell(Text('${group['label'] ?? group['key']}')),
-                DataCell(SizedBox(width: 360, child: Text((group['aliases'] as List<dynamic>? ?? <dynamic>[]).join(', '), overflow: TextOverflow.ellipsis))),
-                DataCell(SizedBox(width: 420, child: Text((group['default_document_types'] as List<dynamic>? ?? <dynamic>[]).join(', '), overflow: TextOverflow.ellipsis))),
-              ])).toList(),
+      if (requirementGroups.isEmpty)
+        const Text('No requirement groups configured for this pack yet.')
+      else
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            columns: const [
+              DataColumn(label: Text('Group')),
+              DataColumn(label: Text('Aliases')),
+              DataColumn(label: Text('Default document types')),
+            ],
+            rows: requirementGroups.map((group) => DataRow(cells: [
+                  DataCell(Text('${group['label'] ?? group['key']}')),
+                  DataCell(SizedBox(width: 360, child: Text((group['aliases'] as List<dynamic>? ?? <dynamic>[]).join(', '), overflow: TextOverflow.ellipsis))),
+                  DataCell(SizedBox(width: 420, child: Text((group['default_document_types'] as List<dynamic>? ?? <dynamic>[]).join(', '), overflow: TextOverflow.ellipsis))),
+                ])).toList(),
+          ),
         ),
-      ),
     ]);
   }
 }
