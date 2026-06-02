@@ -11,6 +11,7 @@ from trustvault.api.routes import (
     containers,
     customers,
     dashboard,
+    demo_archives,
     entities,
     evidence,
     export,
@@ -65,6 +66,7 @@ app.include_router(dashboard.router)
 app.include_router(api_status.router)
 app.include_router(settings_routes.router)
 app.include_router(auto_ingestion.router)
+app.include_router(demo_archives.router)
 app.include_router(query.router)
 app.include_router(customers.router)
 app.include_router(comparison.router)
