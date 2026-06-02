@@ -73,6 +73,21 @@ class TrustVaultQueryInterpreter:
         "transaction",
     )
 
+    MISSING_INTENT_TERMS = (
+        "missing",
+        "without",
+        "do not have",
+        "does not have",
+        "don't have",
+        "has no",
+        "have no",
+        "not have",
+        "not present",
+        "not provided",
+        "outstanding",
+        "incomplete",
+    )
+
     ARCHIVE_STATUS_TERMS = (
         "archive status",
         "how many entities",
@@ -171,12 +186,20 @@ class TrustVaultQueryInterpreter:
                 return value
         return None
 
+    def _has_missing_intent(self, lower: str) -> bool:
+        return any(term in lower for term in self.MISSING_INTENT_TERMS)
+
     def _extract_missing_type(self, lower: str) -> str | None:
         # "correspondence mentioning missing documents" is an evidence search,
         # not a completeness workflow. Treat explicit correspondence/email
         # wording as an indexed evidence query.
         if "correspondence" in lower or "email" in lower:
             return None
+        if "onboarding" in lower and self._has_missing_intent(lower):
+            # Onboarding is a bundle/snapshot rather than one evidence object. Use
+            # mandatory_evidence so the completeness engine returns the missing
+            # onboarding rule rows for the filtered entity cohort.
+            return "mandatory_evidence"
         if "missing proof of address" in lower:
             return "proof_of_address"
         if "missing mandatory" in lower:
