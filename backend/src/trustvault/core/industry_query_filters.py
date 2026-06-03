@@ -34,8 +34,17 @@ def active_industry_key(db: Session) -> str:
     return str(values.get("client_industry") or "financial_services").strip().lower()
 
 
-def infer_industry_key(db: Session, raw_query: str) -> str:
-    """Use explicit query subject terms before falling back to the UI setting."""
+def infer_industry_key(db: Session, raw_query: str, explicit_industry_key: str | None = None) -> str:
+    """Resolve industry context for a query.
+
+    The Search & Query page may provide an explicit per-query industry. That
+    wins over term inference and avoids changing the saved client default merely
+    to run a different type of demo/search. If no explicit context is supplied,
+    subject terms are used before falling back to the saved default.
+    """
+    explicit = str(explicit_industry_key or "").strip().lower()
+    if explicit and explicit not in {"auto", "infer", "default"}:
+        return explicit
     query = _normalise(raw_query)
     if any(term in query.split("_") for term in ("supplier", "suppliers", "vendor", "vendors")) or any(phrase in query for phrase in ("service_provider", "service_providers")):
         return "supplier_due_diligence"
@@ -46,8 +55,8 @@ def infer_industry_key(db: Session, raw_query: str) -> str:
     return active_industry_key(db)
 
 
-def active_query_context(db: Session, raw_query: str) -> dict[str, Any]:
-    industry_key = infer_industry_key(db, raw_query)
+def active_query_context(db: Session, raw_query: str, explicit_industry_key: str | None = None) -> dict[str, Any]:
+    industry_key = infer_industry_key(db, raw_query, explicit_industry_key=explicit_industry_key)
     resolved = QueryVocabularyService(db, industry_key=industry_key).resolve(raw_query)
     return {
         "industry_key": industry_key,
