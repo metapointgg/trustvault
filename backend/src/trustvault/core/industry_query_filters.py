@@ -20,10 +20,23 @@ def active_industry_key(db: Session) -> str:
     return str(values.get("client_industry") or "financial_services").strip().lower()
 
 
+def infer_industry_key(db: Session, raw_query: str) -> str:
+    """Use explicit query subject terms before falling back to the UI setting."""
+    query = _normalise(raw_query)
+    if any(term in query.split("_") for term in ("supplier", "suppliers", "vendor", "vendors")) or any(phrase in query for phrase in ("service_provider", "service_providers")):
+        return "supplier_due_diligence"
+    if any(term in query.split("_") for term in ("patient", "patients", "clinician", "doctor")) or any(phrase in query for phrase in ("dr_jones", "dr_smith", "oncology", "cancer", "consent_form")):
+        return "healthcare"
+    if any(term in query.split("_") for term in ("customer", "customers", "client", "clients")):
+        return "financial_services"
+    return active_industry_key(db)
+
+
 def active_query_context(db: Session, raw_query: str) -> dict[str, Any]:
-    resolved = QueryVocabularyService(db).resolve(raw_query)
+    industry_key = infer_industry_key(db, raw_query)
+    resolved = QueryVocabularyService(db, industry_key=industry_key).resolve(raw_query)
     return {
-        "industry_key": active_industry_key(db),
+        "industry_key": industry_key,
         "resolved_vocabulary": resolved,
         "metadata_filters": [
             item for item in resolved.get("filters", [])
