@@ -124,6 +124,19 @@ CORE_QUERY_REGRESSION_TEST_CASES: list[dict[str, Any]] = [
         },
     },
     {
+        "id": "fs_guernsey_high_risk_search_onboarding_evidence",
+        "industry": "financial_services",
+        "query": "search the archive for onboarding documentation for high risk entities in Guernsey.",
+        "mode": "auto",
+        "expect": {
+            "capability": "evidence_search",
+            "execution_source": "fits_index",
+            "active_industry": "financial_services",
+            "risk_rating": "High",
+            "jurisdiction": "Guernsey",
+        },
+    },
+    {
         "id": "fs_guernsey_high_risk_missing_onboarding",
         "industry": "financial_services",
         "query": "Show me high risk entities in Guernsey who are missing onboarding documentation",
@@ -279,6 +292,8 @@ def _sample_case_expectation(group: str, example: str) -> dict[str, Any]:
     lower = example.lower()
     if "how many entities, containers and indexed evidence objects" in lower or "configured source folder" in lower or "archive status" in lower:
         return {**expectation, "capability": "archive_status", "execution_source": "archive_status", "active_industry_is_null": True, "context_source": "not_applicable_archive_status", "min_result_count": 1}
+    if "search the archive for onboarding documentation for high risk entities in guernsey" in lower:
+        return {**expectation, "active_industry": "financial_services", "capability": "evidence_search", "execution_source": "fits_index", "risk_rating": "High", "jurisdiction": "Guernsey"}
     if "list high risk entities in guernsey" in lower:
         return {**expectation, "active_industry": "financial_services", "capability": "entity_discovery", "execution_source": "entity_metadata", "risk_rating": "High", "jurisdiction": "Guernsey", "min_result_count": 2, "expected_entity_external_ids": ["CUST-000046", "CUST-999001"]}
     if "check patient evidence completeness for eleanor hughes" in lower:
