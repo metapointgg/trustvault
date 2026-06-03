@@ -198,6 +198,77 @@ CORE_QUERY_REGRESSION_TEST_CASES: list[dict[str, Any]] = [
             "forbidden_entity_external_ids": ["SUP-IT-0001", "SUP-LEGAL-0003"],
         },
     },
+    {
+        "id": "healthcare_list_patients",
+        "industry": "healthcare",
+        "query": "list patients.",
+        "mode": "auto",
+        "expect": {
+            "capability": "entity_discovery",
+            "execution_source": "entity_metadata",
+            "active_industry": "healthcare",
+            "min_result_count": 3,
+            "expected_entity_external_ids": ["PAT-ONC-0001", "PAT-ONC-0002", "PAT-CAR-0003"],
+        },
+    },
+    {
+        "id": "healthcare_list_patients_oncology",
+        "industry": "healthcare",
+        "query": "list patients in oncology.",
+        "mode": "auto",
+        "expect": {
+            "capability": "entity_discovery",
+            "execution_source": "entity_metadata",
+            "active_industry": "healthcare",
+            "metadata_filters": {"department": "Oncology"},
+            "min_result_count": 2,
+            "expected_entity_external_ids": ["PAT-ONC-0001", "PAT-ONC-0002"],
+            "forbidden_entity_external_ids": ["PAT-CAR-0003", "SUP-IT-0001"],
+        },
+    },
+    {
+        "id": "supplier_list_suppliers",
+        "industry": "supplier_due_diligence",
+        "query": "list suppliers.",
+        "mode": "auto",
+        "expect": {
+            "capability": "entity_discovery",
+            "execution_source": "entity_metadata",
+            "active_industry": "supplier_due_diligence",
+            "min_result_count": 3,
+            "expected_entity_external_ids": ["SUP-IT-0001", "SUP-IT-0002", "SUP-LEGAL-0003"],
+        },
+    },
+    {
+        "id": "supplier_list_it_suppliers",
+        "industry": "supplier_due_diligence",
+        "query": "list IT suppliers.",
+        "mode": "auto",
+        "expect": {
+            "capability": "entity_discovery",
+            "execution_source": "entity_metadata",
+            "active_industry": "supplier_due_diligence",
+            "metadata_filters": {"supplier_category": "IT"},
+            "min_result_count": 2,
+            "expected_entity_external_ids": ["SUP-IT-0001", "SUP-IT-0002"],
+            "forbidden_entity_external_ids": ["SUP-LEGAL-0003", "PAT-ONC-0001"],
+        },
+    },
+    {
+        "id": "supplier_list_critical_suppliers",
+        "industry": "supplier_due_diligence",
+        "query": "list critical suppliers.",
+        "mode": "auto",
+        "expect": {
+            "capability": "entity_discovery",
+            "execution_source": "entity_metadata",
+            "active_industry": "supplier_due_diligence",
+            "metadata_filters": {"criticality": "Critical"},
+            "min_result_count": 1,
+            "expected_entity_external_ids": ["SUP-IT-0001"],
+            "forbidden_entity_external_ids": ["SUP-IT-0002", "SUP-LEGAL-0003"],
+        },
+    },
 ]
 
 
@@ -219,6 +290,57 @@ def _case_id(group: str, index: int, query: str) -> str:
 def _sample_case_expectation(group: str, example: str) -> dict[str, Any]:
     expectation: dict[str, Any] = {"smoke_only": True, "no_error": True}
     lower = example.lower()
+    if "list patients in oncology" in lower:
+        return {
+            **expectation,
+            "active_industry": "healthcare",
+            "capability": "entity_discovery",
+            "execution_source": "entity_metadata",
+            "metadata_filters": {"department": "Oncology"},
+            "min_result_count": 2,
+            "expected_entity_external_ids": ["PAT-ONC-0001", "PAT-ONC-0002"],
+            "forbidden_entity_external_ids": ["PAT-CAR-0003", "SUP-IT-0001"],
+        }
+    if "list patients" in lower:
+        return {
+            **expectation,
+            "active_industry": "healthcare",
+            "capability": "entity_discovery",
+            "execution_source": "entity_metadata",
+            "min_result_count": 3,
+            "expected_entity_external_ids": ["PAT-ONC-0001", "PAT-ONC-0002", "PAT-CAR-0003"],
+        }
+    if "list it suppliers" in lower:
+        return {
+            **expectation,
+            "active_industry": "supplier_due_diligence",
+            "capability": "entity_discovery",
+            "execution_source": "entity_metadata",
+            "metadata_filters": {"supplier_category": "IT"},
+            "min_result_count": 2,
+            "expected_entity_external_ids": ["SUP-IT-0001", "SUP-IT-0002"],
+            "forbidden_entity_external_ids": ["SUP-LEGAL-0003", "PAT-ONC-0001"],
+        }
+    if "list critical suppliers" in lower:
+        return {
+            **expectation,
+            "active_industry": "supplier_due_diligence",
+            "capability": "entity_discovery",
+            "execution_source": "entity_metadata",
+            "metadata_filters": {"criticality": "Critical"},
+            "min_result_count": 1,
+            "expected_entity_external_ids": ["SUP-IT-0001"],
+            "forbidden_entity_external_ids": ["SUP-IT-0002", "SUP-LEGAL-0003"],
+        }
+    if "list suppliers" in lower:
+        return {
+            **expectation,
+            "active_industry": "supplier_due_diligence",
+            "capability": "entity_discovery",
+            "execution_source": "entity_metadata",
+            "min_result_count": 3,
+            "expected_entity_external_ids": ["SUP-IT-0001", "SUP-IT-0002", "SUP-LEGAL-0003"],
+        }
     if "supplier" in group.lower() or "supplier" in lower:
         expectation["active_industry"] = "supplier_due_diligence"
     elif "healthcare" in group.lower() or any(term in lower for term in ("patient", "patients", "oncology", "dr jones", "cancer", "consent")):
