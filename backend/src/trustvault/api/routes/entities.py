@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from trustvault.api.dependencies import get_database
 from trustvault.auth.dependencies import require_permission
+from trustvault.core.industry_query_filters import active_industry_key, entity_matches_active_industry
 from trustvault.db.models import Entity, EvidenceObject
 
 router = APIRouter(
@@ -68,9 +69,25 @@ def serialise_evidence_object(evidence: EvidenceObject) -> EvidenceObjectRespons
 
 
 @router.get("", response_model=list[EntityResponse])
-def list_entities(db: Session = Depends(get_database), limit: int = 100) -> list[EntityResponse]:
-    entities = db.scalars(select(Entity).order_by(Entity.created_at.desc()).limit(limit)).all()
-    return [serialise_entity(entity) for entity in entities]
+def list_entities(
+    db: Session = Depends(get_database),
+    limit: int = 100,
+    industry: str | None = None,
+    include_all_industries: bool = False,
+) -> list[EntityResponse]:
+    entities = db.scalars(select(Entity).order_by(Entity.created_at.desc()).limit(max(limit * 5, limit))).all()
+    if not include_all_industries:
+        selected_industry = industry or active_industry_key(db)
+        rows = []
+        for entity in entities:
+            candidate = {
+                "entity_type": entity.entity_type,
+                "metadata_json": entity.metadata_json or {},
+            }
+            if entity_matches_active_industry(candidate, selected_industry):
+                rows.append(entity)
+        entities = rows
+    return [serialise_entity(entity) for entity in entities[:limit]]
 
 
 @router.get("/{entity_id}", response_model=EntityResponse)
