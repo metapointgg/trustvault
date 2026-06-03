@@ -102,10 +102,97 @@ class IndustryRulesetService:
         self.db.refresh(ruleset)
         return ruleset
 
+    def list_configs(self) -> dict[str, Any]:
+        self.ensure_all_default_rulesets()
+        return {
+            "industry_rulesets": [self.ruleset_config(key) for key in INDUSTRY_RULESET_TEMPLATES],
+            "active_industry": active_industry_key(self.db),
+        }
+
+    def ruleset_config(self, industry_key: str | None) -> dict[str, Any]:
+        ruleset = self.ensure_ruleset(industry_key)
+        rules = self.db.scalars(select(RulesetRule).where(RulesetRule.ruleset_id == ruleset.id).order_by(RulesetRule.rule_key.asc())).all()
+        metadata = ruleset.metadata_json or {}
+        return {
+            "industry_key": metadata.get("industry_pack") or self._normalise_industry(industry_key),
+            "ruleset_id": str(ruleset.id),
+            "name": ruleset.name,
+            "version": ruleset.version,
+            "status": ruleset.status,
+            "description": ruleset.description,
+            "customised": metadata.get("source") == "admin_override",
+            "metadata_json": metadata,
+            "rules": [self._rule_config(rule) for rule in rules],
+        }
+
+    def save_ruleset_config(self, industry_key: str, config: dict[str, Any], *, updated_by_user_id: str | None = None) -> dict[str, Any]:
+        key = self._normalise_industry(industry_key)
+        if not isinstance(config, dict):
+            raise ValueError("Ruleset config must be a JSON object")
+        ruleset = self.ensure_ruleset(key)
+        ruleset.name = str(config.get("name") or ruleset.name)
+        ruleset.version = int(config.get("version") or ruleset.version or 1)
+        ruleset.status = str(config.get("status") or "active")
+        ruleset.description = config.get("description") if config.get("description") is not None else ruleset.description
+        ruleset.metadata_json = {**(config.get("metadata_json") or {}), "source": "admin_override", "industry_pack": key, "updated_by_user_id": updated_by_user_id}
+        self.db.query(RulesetRule).filter(RulesetRule.ruleset_id == ruleset.id).delete()
+        for raw_rule in config.get("rules") or []:
+            rule = self._validate_rule(raw_rule, key)
+            self.db.add(RulesetRule(ruleset_id=ruleset.id, **rule))
+        self.db.commit()
+        return self.ruleset_config(key)
+
+    def reset_ruleset_config(self, industry_key: str) -> dict[str, Any]:
+        key = self._normalise_industry(industry_key)
+        existing = self.db.scalars(select(Ruleset).where(Ruleset.metadata_json["industry_pack"].as_string() == key)).all()
+        for ruleset in existing:
+            self.db.query(RulesetRule).filter(RulesetRule.ruleset_id == ruleset.id).delete()
+            self.db.delete(ruleset)
+        self.db.commit()
+        return self.ruleset_config(key)
+
     def ruleset_for_entity(self, entity: Entity) -> Ruleset:
         metadata = entity.metadata_json or {}
         industry_key = metadata.get("industry_pack") or metadata.get("industry") or metadata.get("demo_archive_key") or self._industry_from_entity_type(entity.entity_type) or active_industry_key(self.db)
         return self.ensure_ruleset(str(industry_key))
+
+    def _rule_config(self, rule: RulesetRule) -> dict[str, Any]:
+        applies_when = rule.applies_when_json or {}
+        metadata = rule.metadata_json or {}
+        return {
+            "id": str(rule.id),
+            "rule_key": rule.rule_key,
+            "category": rule.category,
+            "document_type": rule.document_type,
+            "required": rule.required,
+            "applies_to_entity_types": applies_when.get("entity_types") or metadata.get("applies_to_entity_types") or [],
+            "metadata_filters": applies_when.get("metadata_filters") or metadata.get("metadata_filters") or {},
+            "applies_when_json": applies_when,
+            "max_age_days": rule.max_age_days,
+            "metadata_json": metadata,
+        }
+
+    def _validate_rule(self, raw_rule: dict[str, Any], industry_key: str) -> dict[str, Any]:
+        if not isinstance(raw_rule, dict):
+            raise ValueError("Each rule must be a JSON object")
+        rule_key = str(raw_rule.get("rule_key") or "").strip()
+        category = str(raw_rule.get("category") or "").strip()
+        document_type = str(raw_rule.get("document_type") or "").strip()
+        if not rule_key or not category or not document_type:
+            raise ValueError("Each rule requires rule_key, category and document_type")
+        entity_types = raw_rule.get("applies_to_entity_types") or (raw_rule.get("applies_when_json") or {}).get("entity_types") or []
+        metadata_filters = raw_rule.get("metadata_filters") or (raw_rule.get("applies_when_json") or {}).get("metadata_filters") or {}
+        applies_when = {"entity_types": [str(item) for item in entity_types], "metadata_filters": metadata_filters if isinstance(metadata_filters, dict) else {}}
+        metadata = {**(raw_rule.get("metadata_json") or {}), "source": "admin_override", "industry_pack": industry_key, "applies_to_entity_types": applies_when["entity_types"], "metadata_filters": applies_when["metadata_filters"]}
+        return {
+            "rule_key": rule_key,
+            "category": category,
+            "document_type": document_type,
+            "required": bool(raw_rule.get("required", True)),
+            "applies_when_json": applies_when,
+            "max_age_days": raw_rule.get("max_age_days"),
+            "metadata_json": metadata,
+        }
 
     def _industry_from_entity_type(self, entity_type: str | None) -> str | None:
         normalised = self._normalise(entity_type)
