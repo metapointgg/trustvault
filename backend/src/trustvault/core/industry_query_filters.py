@@ -13,6 +13,20 @@ INDUSTRY_ENTITY_TYPES = {
     "healthcare": {"patient", "clinician", "department", "referral"},
     "supplier_due_diligence": {"supplier", "vendor", "contractor", "service_provider"},
 }
+NON_EVIDENCE_DOCUMENT_TYPES = {
+    "email",
+    "audit_events",
+    "bulk_archive_attachment",
+    "structured_extract",
+    "statement",
+}
+NON_EVIDENCE_CATEGORIES = {
+    "communications",
+    "audit",
+    "large_evidence",
+    "structured_extracts",
+    "statements",
+}
 
 
 def active_industry_key(db: Session) -> str:
@@ -113,18 +127,38 @@ def document_types_for_missing_check(context: dict[str, Any]) -> list[str]:
 
 
 def evidence_has_document_type(row_or_item: dict[str, Any], document_type: str) -> bool:
+    """Return whether a FITS/index row satisfies a required document type.
+
+    Filenames are useful for classifying genuine uploaded documents, but they can
+    create false positives when an email or audit record merely mentions the
+    required evidence. Therefore communications, audit rows, bulk blobs,
+    statements and structured extracts cannot satisfy a required evidence type by
+    filename alone.
+    """
+
     target = _normalise(document_type)
-    values = [
-        row_or_item.get("document_type"),
-        row_or_item.get("object_type"),
-        row_or_item.get("filename"),
-        row_or_item.get("category"),
-    ]
-    for value in values:
-        normalised = _normalise(value)
-        if normalised == target or target in normalised or normalised in target:
+    category = _normalise(row_or_item.get("category"))
+    document_value = _normalise(row_or_item.get("document_type"))
+    object_value = _normalise(row_or_item.get("object_type"))
+    filename_value = _normalise(row_or_item.get("filename"))
+
+    direct_values = [document_value, object_value, category]
+    for value in direct_values:
+        if _value_matches_target(value, target):
             return True
-    return False
+
+    if category in NON_EVIDENCE_CATEGORIES or document_value in NON_EVIDENCE_DOCUMENT_TYPES or object_value in NON_EVIDENCE_DOCUMENT_TYPES:
+        return False
+
+    # Filename is a final fallback only for rows that are not already classified
+    # as communications/audit/bulk/statement/structured extract evidence.
+    return _value_matches_target(filename_value, target)
+
+
+def _value_matches_target(value: str, target: str) -> bool:
+    if not value or not target:
+        return False
+    return value == target or target in value or value in target
 
 
 def _normalise(value: Any) -> str:
