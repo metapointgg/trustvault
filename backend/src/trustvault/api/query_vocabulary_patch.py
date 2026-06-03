@@ -47,6 +47,8 @@ def apply(query_module: Any) -> None:
             "document_requirements": context.get("document_requirements"),
             "requirement_groups": context.get("requirement_groups"),
         }
+        if overrides:
+            _normalise_ai_raw(meta, overrides, context)
         if not overrides:
             return structured, meta
 
@@ -128,6 +130,21 @@ def apply(query_module: Any) -> None:
     query_module._completeness_check_result = patched_completeness_check_result
     query_module._structured_index_search = patched_structured_index_search
     _PATCHED = True
+
+
+def _normalise_ai_raw(meta: dict[str, Any], overrides: dict[str, Any], context: dict[str, Any]) -> None:
+    ai_raw = meta.get("ai_raw")
+    if not isinstance(ai_raw, dict):
+        return
+    if overrides.get("capability") != "completeness_check":
+        return
+    ai_raw["capability"] = "completeness_check"
+    ai_raw["completeness_only"] = True
+    ai_raw["missing_evidence_type"] = overrides.get("missing_evidence_type")
+    ai_raw["document_types"] = overrides.get("document_types") or context.get("document_requirements") or []
+    ai_raw["execute_with"] = "fits_index"
+    ai_raw["confidence"] = max(float(ai_raw.get("confidence") or 0), 0.92)
+    ai_raw["reason"] = "Resolved by configured industry vocabulary: missing required evidence/document terms route to completeness_check, with filters and requirements validated against the active industry pack."
 
 
 def _missing_documents_for_entity(db: Any, entity_row: dict[str, Any], expected_document_types: list[str]) -> list[str]:
