@@ -57,6 +57,16 @@ def apply(query_module: Any) -> None:
                 "missing_evidence_type": overrides.get("missing_evidence_type") or "mandatory_evidence",
                 "execute_with": "fits_index",
             }
+        if _has_entity_list_intent(request.query) and not _has_missing_intent(request.query) and not context_document_types and not context.get("requirement_groups"):
+            overrides = {
+                **overrides,
+                "capability": "entity_discovery",
+                "completeness_only": False,
+                "document_types": [],
+                "categories": [],
+                "missing_evidence_type": None,
+                "execute_with": "entity_metadata",
+            }
         meta["resolved_vocabulary"] = resolved.get("resolved_vocabulary") or context.get("resolved_vocabulary")
         meta["vocabulary_overrides"] = overrides
         meta["active_industry_context"] = {
@@ -127,6 +137,34 @@ def apply(query_module: Any) -> None:
             "diagnostics": diagnostics,
         }
 
+    def patched_entity_discovery_result(service: Any, structured: Any, limit: int) -> dict[str, Any]:
+        db = service.db
+        context = active_query_context(db, structured.raw_query)
+        entities = service.customers(risk_rating=structured.risk_rating, jurisdiction=structured.jurisdiction)
+        entities = [entity for entity in entities if entity_matches_context(entity, context)]
+        if structured.entity_external_id:
+            entities = [entity for entity in entities if entity["external_id"] == structured.entity_external_id]
+        limited = entities[:limit]
+        diagnostics = {
+            "execution_mode": "industry_entity_discovery",
+            "active_industry": context.get("industry_key"),
+            "industry_filter_source": "entity_metadata",
+            "metadata_filters": context.get("metadata_filters"),
+            "requested_entity_external_id": structured.entity_external_id,
+            "requested_risk_rating": structured.risk_rating,
+            "requested_jurisdiction": structured.jurisdiction,
+            "matching_entity_count": len(entities),
+            "matching_entity_external_ids": [entity["external_id"] for entity in entities],
+            "matched_before_limit": len(entities),
+        }
+        return {
+            "query": structured.raw_query,
+            "result_count": len(limited),
+            "results": limited,
+            "filtered_entity_count": len(limited),
+            "diagnostics": diagnostics,
+        }
+
     def patched_structured_index_search(db: Any, service: Any, structured: Any, query: str, limit: int) -> dict[str, Any]:
         context = active_query_context(db, structured.raw_query)
         result = original_structured_index_search(db, service, structured, query, 5000)
@@ -146,6 +184,7 @@ def apply(query_module: Any) -> None:
 
     query_module._interpret = patched_interpret
     query_module._completeness_check_result = patched_completeness_check_result
+    query_module._entity_discovery_result = patched_entity_discovery_result
     query_module._structured_index_search = patched_structured_index_search
     _PATCHED = True
 
@@ -259,6 +298,18 @@ def _row_matches_context(db: Any, row: dict[str, Any], context: dict[str, Any]) 
 def _has_missing_intent(query: str) -> bool:
     normalised = _normalise(query)
     return any(phrase in normalised for phrase in ("missing", "not_supplied", "not_provided", "without", "outstanding", "have_not_supplied", "has_not_supplied"))
+
+
+def _has_entity_list_intent(query: str) -> bool:
+    normalised = _normalise(query)
+    tokens = {token for token in normalised.split("_") if token}
+    has_listing_verb = bool(tokens & {"list", "show", "find", "identify"})
+    has_entity_subject = bool(tokens & {"patient", "patients", "supplier", "suppliers", "vendor", "vendors", "customer", "customers", "entity", "entities"})
+    if not has_listing_verb or not has_entity_subject:
+        return False
+    # Queries that explicitly ask for evidence/documents/search should remain evidence searches unless they are missing/completeness queries.
+    evidence_terms = {"evidence", "document", "documents", "documentation", "reports", "report", "certificate", "certificates", "agreement", "agreements"}
+    return not bool(tokens & evidence_terms)
 
 
 def _to_key(value: str) -> str:
