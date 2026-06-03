@@ -8,7 +8,8 @@ Usage:
 
 The runner sets the configured client industry before each case, executes the
 query, evaluates configured expectations, and restores the original industry at
-the end. The output includes summary counts plus per-case pass/fail reasons.
+the end. Cases may optionally specify ``query_industry`` to send a per-query
+industry context without relying on the saved client default.
 """
 
 from __future__ import annotations
@@ -108,6 +109,7 @@ def compact_response(case: dict[str, Any], response: dict[str, Any], elapsed_ms:
         "source": case.get("source", "core_regression"),
         "scenario_group": case.get("scenario_group"),
         "industry": case.get("industry"),
+        "query_industry": case.get("query_industry"),
         "query": case.get("query"),
         "elapsed_ms": elapsed_ms,
         "passed": passed,
@@ -135,6 +137,12 @@ def evaluate_expectations(expect: dict[str, Any], actual: dict[str, Any]) -> tup
         active = diagnostics.get("active_industry") or context.get("industry_key")
         if active != expect["active_industry"]:
             reasons.append(f"active_industry expected {expect['active_industry']} got {active}")
+    if expect.get("active_industry_is_null"):
+        active = diagnostics.get("active_industry") or context.get("industry_key")
+        if active is not None:
+            reasons.append(f"active_industry expected null got {active}")
+    if expect.get("context_source") and context.get("source") != expect["context_source"]:
+        reasons.append(f"context_source expected {expect['context_source']} got {context.get('source')}")
     if expect.get("risk_rating") and structured.get("risk_rating") != expect["risk_rating"]:
         reasons.append(f"risk_rating expected {expect['risk_rating']} got {structured.get('risk_rating')}")
     if expect.get("jurisdiction") and structured.get("jurisdiction") != expect["jurisdiction"]:
@@ -197,6 +205,7 @@ def error_case(case: dict[str, Any], error: Exception, elapsed_ms: int) -> dict[
         "source": case.get("source", "core_regression"),
         "scenario_group": case.get("scenario_group"),
         "industry": case.get("industry"),
+        "query_industry": case.get("query_industry"),
         "query": case.get("query"),
         "elapsed_ms": elapsed_ms,
         "passed": False,
@@ -239,17 +248,15 @@ def main() -> int:
             start = time.time()
             try:
                 set_client_industry(base_url, args.token, case.get("industry"))
-                response = request_json(
-                    "POST",
-                    f"{base_url}/api/v1/query/execute",
-                    token=args.token,
-                    body={
-                        "query": case["query"],
-                        "mode": case.get("mode", "auto"),
-                        "limit": args.limit,
-                        "include_ai_summary": False,
-                    },
-                )
+                body = {
+                    "query": case["query"],
+                    "mode": case.get("mode", "auto"),
+                    "limit": args.limit,
+                    "include_ai_summary": False,
+                }
+                if case.get("query_industry"):
+                    body["industry_key"] = case["query_industry"]
+                response = request_json("POST", f"{base_url}/api/v1/query/execute", token=args.token, body=body)
                 elapsed_ms = int((time.time() - start) * 1000)
                 case_result = compact_response(case, response, elapsed_ms)
             except Exception as exc:  # noqa: BLE001 - command-line diagnostic output
