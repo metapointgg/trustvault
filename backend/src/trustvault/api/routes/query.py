@@ -301,7 +301,105 @@ def _entity_discovery_result(service: TrustVaultFeatureService, structured: Stru
 def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]], db: Session, execution_source: str, audit_logger: AuditLogger) -> dict[str, Any] | None:
     if not request.include_ai_summary:
         return None
-    return {"available": True, "summary": f"{len(rows)} row(s) returned from {execution_source}.", "provider": "trustvault", "model": "deterministic_summary", "warnings": [], "ai_used_for_summary": False}
+    summary = _deterministic_query_summary(request, rows, execution_source)
+    return {
+        "available": True,
+        "summary": summary,
+        "provider": "trustvault",
+        "model": "deterministic_query_summary",
+        "warnings": [],
+        "ai_used_for_summary": False,
+    }
+
+
+def _deterministic_query_summary(request: ExecuteRequest, rows: list[dict[str, Any]], execution_source: str) -> str:
+    if not rows:
+        return f"No rows were returned for: {request.query}"
+    result_type = _summary_result_type(execution_source, rows)
+    if result_type == "archive_status":
+        row = rows[0]
+        status = row.get("status") or "unknown"
+        return (
+            f"Archive status is {status}. TrustVault currently has {row.get('entity_count', 0)} entities, "
+            f"{row.get('current_fits_container_count', 0)} current FITS containers and "
+            f"{row.get('fits_index_entry_count', 0)} indexed evidence objects. "
+            f"There are {row.get('queued_jobs', 0)} queued jobs, {row.get('running_jobs', 0)} running jobs, "
+            f"{row.get('failed_jobs', 0)} failed jobs, {row.get('integrity_issue_count', 0)} integrity issues and "
+            f"{row.get('retention_issue_count', 0)} retention issues."
+        )
+    if result_type == "entity_discovery":
+        return f"Found {len(rows)} matching { _plural('entity', len(rows)) }. Top matches: {_summary_entity_list(rows)}."
+    if result_type == "missing_evidence":
+        return f"Found {len(rows)} missing evidence { _plural('item', len(rows)) }. {_summary_missing_evidence(rows)}"
+    if result_type == "entity_summary":
+        row = rows[0]
+        return (
+            f"{_summary_entity_label(row)} has {row.get('indexed_evidence_count', 0)} indexed evidence objects "
+            f"across {row.get('container_count', 0)} FITS container {_plural('version', int(row.get('container_count') or 0))}. "
+            f"Latest container version: {row.get('latest_container_version') or '-'}; status: {row.get('latest_container_status') or '-'}"
+        )
+    if result_type == "evidence_count":
+        top = "; ".join(
+            f"{row.get('category') or 'Uncategorised'} / {row.get('document_type') or 'Unknown'}: {row.get('evidence_count', 0)}"
+            for row in rows[:6]
+        )
+        return f"Evidence counts were returned across {len(rows)} category/document type {_plural('grouping', len(rows))}. {top}"
+    if result_type == "container_version":
+        versions = ", ".join(str(row.get("version_number") or "-") for row in rows[:8])
+        entity = _summary_entity_label(rows[0])
+        return f"Found {len(rows)} FITS container {_plural('version', len(rows))} for {entity}. Versions: {versions}."
+    entity_count = len({row.get("entity_external_id") or row.get("external_id") for row in rows if row.get("entity_external_id") or row.get("external_id")})
+    top_evidence = "; ".join(
+        f"{row.get('filename') or row.get('document_type') or 'Evidence'} for {_summary_entity_label(row)}"
+        for row in rows[:5]
+    )
+    return f"Found {len(rows)} evidence {_plural('row', len(rows))} across {entity_count} {_plural('entity', entity_count)}. Top matches: {top_evidence}."
+
+
+def _summary_result_type(execution_source: str, rows: list[dict[str, Any]]) -> str:
+    if execution_source == "archive_status":
+        return "archive_status"
+    types = {str(row.get("summary_type") or "") for row in rows if row.get("summary_type")}
+    if "archive_status" in types:
+        return "archive_status"
+    if "entity_summary" in types:
+        return "entity_summary"
+    if "evidence_count" in types:
+        return "evidence_count"
+    if "container_version" in types:
+        return "container_version"
+    if "missing_evidence" in types or execution_source == "completeness_rules":
+        return "missing_evidence"
+    if "entity_discovery" in types or execution_source == "entity_metadata":
+        return "entity_discovery"
+    return "evidence_search"
+
+
+def _summary_entity_label(row: dict[str, Any]) -> str:
+    external_id = row.get("entity_external_id") or row.get("external_id") or "-"
+    display_name = row.get("entity_display_name") or row.get("display_name") or ""
+    return f"{external_id} {display_name}".strip()
+
+
+def _summary_entity_list(rows: list[dict[str, Any]], limit: int = 6) -> str:
+    values = [_summary_entity_label(row) for row in rows[:limit]]
+    if len(rows) > limit:
+        values.append(f"and {len(rows) - limit} more")
+    return ", ".join(values) if values else "none"
+
+
+def _summary_missing_evidence(rows: list[dict[str, Any]], limit: int = 8) -> str:
+    values = [
+        f"{_summary_entity_label(row)} is missing {row.get('document_type') or row.get('missing_evidence_type') or row.get('rule_key') or 'evidence'}"
+        for row in rows[:limit]
+    ]
+    if len(rows) > limit:
+        values.append(f"and {len(rows) - limit} more missing item(s)")
+    return "; ".join(values) + "." if values else ""
+
+
+def _plural(word: str, count: int) -> str:
+    return word if count == 1 else f"{word}s"
 
 
 def _audit_and_return(*, request: ExecuteRequest, structured: StructuredQuery, meta: dict[str, Any], result: dict[str, Any], execution_source: str, audit_logger: AuditLogger, db: Session, current_user: User) -> dict[str, Any]:
