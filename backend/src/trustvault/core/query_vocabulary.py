@@ -121,6 +121,7 @@ class QueryVocabularyService:
         filters = resolved["filters"]
         requirements = resolved["requirements"]
         overrides: dict[str, Any] = {}
+        has_completeness_intent = self._has_completeness_intent(query)
         for match in filters:
             if match["field_binding"] == "jurisdiction":
                 overrides["jurisdiction"] = match["canonical_value"]
@@ -128,15 +129,16 @@ class QueryVocabularyService:
                 overrides["risk_rating"] = match["canonical_value"]
         for match in requirements:
             if match["dimension"] == "requirement_group":
-                overrides["capability"] = "completeness_check"
-                overrides["completeness_only"] = True
-                overrides["missing_evidence_type"] = "mandatory_evidence"
                 if self._normalise(match["canonical_value"]) in {"onboarding", "patient onboarding", "supplier onboarding"}:
                     overrides["snapshot_id"] = "ONBOARDING"
+                if has_completeness_intent:
+                    overrides["capability"] = "completeness_check"
+                    overrides["completeness_only"] = True
+                    overrides["missing_evidence_type"] = "mandatory_evidence"
         document_requirements = [m["canonical_value"] for m in requirements if m["dimension"] == "document_type"]
         if document_requirements:
             overrides["document_types"] = document_requirements
-            if self._has_missing_intent(query):
+            if has_completeness_intent:
                 overrides["capability"] = "completeness_check"
                 overrides["completeness_only"] = True
                 overrides["missing_evidence_type"] = self._to_key(document_requirements[0])
@@ -177,6 +179,22 @@ class QueryVocabularyService:
     def _has_missing_intent(self, query: str) -> bool:
         normalised = self._normalise(query)
         return any(phrase in normalised for phrase in ("missing", "not supplied", "not provided", "without", "outstanding", "have not supplied", "has not supplied"))
+
+    def _has_completeness_intent(self, query: str) -> bool:
+        normalised = self._normalise(query)
+        return self._has_missing_intent(query) or any(
+            phrase in normalised
+            for phrase in (
+                "completeness",
+                "complete evidence",
+                "evidence completeness",
+                "mandatory evidence",
+                "required evidence",
+                "incomplete",
+                "check patient evidence",
+                "check evidence",
+            )
+        )
 
     def _to_key(self, value: str) -> str:
         return re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
