@@ -16,9 +16,9 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-BACKEND_SRC = ROOT / "backend" / "src"
-if str(BACKEND_SRC) not in sys.path:
-    sys.path.insert(0, str(BACKEND_SRC))
+for candidate in (ROOT / "backend" / "src", ROOT / "src", Path("/app/src")):
+    if candidate.exists() and str(candidate) not in sys.path:
+        sys.path.insert(0, str(candidate))
 
 from sqlalchemy import select  # noqa: E402
 
