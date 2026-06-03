@@ -13,11 +13,13 @@ MAX_ROWS_FOR_PROMPT = 20
 MAX_STRING_CHARS = 1000
 
 SYSTEM_PROMPT = (
-    "You are the TrustVault query answer agent. Write a concise user-facing "
-    "narrative answer from the supplied structured query result. Use only the "
-    "supplied data. Explain what was found, who or what it relates to, and any "
-    "important caveat visible in the diagnostics. Do not refer to rows or JSON "
-    "unless the user asked about technical output."
+    "You are the TrustVault query answer agent. Write a concise user-facing answer "
+    "from the supplied structured query result. Use only the supplied data. Answer "
+    "in one or two short sentences, no more than 55 words. Lead with the finding. "
+    "Mention only the most relevant entity, evidence, missing item or count. Do not "
+    "include retention, legal hold, storage, source-system, checksum, model, metadata "
+    "or classification detail unless the user explicitly asked for it. Do not refer "
+    "to rows, JSON or grids unless the user asked about technical output."
 )
 
 
@@ -65,8 +67,8 @@ def _call_lm_studio(base_url: str, model: str, payload: dict[str, Any]) -> str:
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False, default=str)},
         ],
-        "temperature": 0.2,
-        "max_tokens": 260,
+        "temperature": 0.1,
+        "max_tokens": 110,
         "stream": False,
     }
     request = urllib.request.Request(
@@ -152,4 +154,8 @@ def _clean_text(value: Any) -> str:
                 text = str(parsed["summary"]).strip()
         except json.JSONDecodeError:
             pass
-    return " ".join(text.split())
+    text = " ".join(text.split())
+    words = text.split()
+    if len(words) > 70:
+        text = " ".join(words[:70]).rstrip(" ,;:") + "..."
+    return text
