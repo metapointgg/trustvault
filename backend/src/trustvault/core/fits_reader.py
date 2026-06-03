@@ -248,18 +248,20 @@ class FitsContainerReader:
         rows: list[dict[str, Any]] = []
         with fits.open(io.BytesIO(data), checksum=True) as hdul:
             manifest = self._try_read_json_hdu(hdul, "MANIFEST") or []
+            manifest_rows = self._manifest_rows(manifest)
             ocr_rows = self._try_read_json_hdu(hdul, "OCR_TEXT") or []
             hdu_by_name = {hdu.name: hdu for hdu in hdul}
             ocr_by_object = {str(row.get("object_id")): row for row in ocr_rows if isinstance(row, dict)}
 
-            for manifest_row in [row for row in manifest if isinstance(row, dict)]:
-                object_id = str(manifest_row.get("id") or "")
-                hdu_name = str(manifest_row.get("hdu_name") or "")
+            for manifest_row in [row for row in manifest_rows if isinstance(row, dict)]:
+                enriched_manifest_row = self._enrich_manifest_row(entity, manifest_row)
+                object_id = str(enriched_manifest_row.get("id") or "")
+                hdu_name = str(enriched_manifest_row.get("hdu_name") or "")
                 payload_hdu = hdu_by_name.get(hdu_name)
-                payload_text = self._payload_text(payload_hdu, manifest_row) if payload_hdu is not None else ""
+                payload_text = self._payload_text(payload_hdu, enriched_manifest_row) if payload_hdu is not None else ""
                 ocr_row = ocr_by_object.get(object_id, {})
                 ocr_text = str(ocr_row.get("extracted_text") or "")
-                searchable = self._build_searchable_text(manifest_row, payload_text, ocr_text)
+                searchable = self._build_searchable_text(enriched_manifest_row, payload_text, ocr_text)
                 rows.append(
                     {
                         "entity_id": str(entity.id),
@@ -267,13 +269,13 @@ class FitsContainerReader:
                         "container_version_id": str(version.id),
                         "evidence_object_id": object_id,
                         "hdu_name": hdu_name,
-                        "filename": manifest_row.get("filename"),
-                        "object_type": manifest_row.get("object_type"),
-                        "source_system": manifest_row.get("source_system"),
-                        "sha256": manifest_row.get("sha256"),
+                        "filename": enriched_manifest_row.get("filename"),
+                        "object_type": enriched_manifest_row.get("object_type"),
+                        "source_system": enriched_manifest_row.get("source_system"),
+                        "sha256": enriched_manifest_row.get("sha256"),
                         "payload_text_length": len(payload_text),
                         "ocr_text_length": len(ocr_text),
-                        "manifest_row": manifest_row,
+                        "manifest_row": enriched_manifest_row,
                         "searchable_text": searchable,
                     }
                 )
@@ -283,14 +285,9 @@ class FitsContainerReader:
                 object_id = str(ocr_row.get("object_id") or "")
                 if object_id in indexed_object_ids:
                     continue
+                enriched_manifest_row = self._enrich_manifest_row(entity, {"id": object_id, "filename": ocr_row.get("filename"), "source_system": "OCR_TEXT"})
                 ocr_text = str(ocr_row.get("extracted_text") or "")
-                searchable = "\n".join(
-                    [
-                        str(ocr_row.get("filename", "")),
-                        object_id,
-                        ocr_text,
-                    ]
-                ).strip()
+                searchable = self._build_searchable_text(enriched_manifest_row, "", ocr_text)
                 rows.append(
                     {
                         "entity_id": str(entity.id),
@@ -304,11 +301,39 @@ class FitsContainerReader:
                         "sha256": None,
                         "payload_text_length": 0,
                         "ocr_text_length": len(ocr_text),
-                        "manifest_row": {},
+                        "manifest_row": enriched_manifest_row,
                         "searchable_text": searchable,
                     }
                 )
         return rows
+
+    def _manifest_rows(self, manifest: Any) -> list[dict[str, Any]]:
+        if isinstance(manifest, dict):
+            rows = manifest.get("evidence_objects") or manifest.get("objects") or []
+            return [row for row in rows if isinstance(row, dict)]
+        if isinstance(manifest, list):
+            return [row for row in manifest if isinstance(row, dict)]
+        return []
+
+    def _enrich_manifest_row(self, entity: Entity, manifest_row: dict[str, Any]) -> dict[str, Any]:
+        entity_metadata = entity.metadata_json or {}
+        enriched = dict(manifest_row or {})
+        enriched["entity"] = {
+            "id": str(entity.id),
+            "external_id": entity.external_id,
+            "display_name": entity.display_name,
+            "entity_type": entity.entity_type,
+            "status": entity.status,
+            "metadata": entity_metadata,
+        }
+        enriched["entity_metadata"] = entity_metadata
+        industry_pack = entity_metadata.get("industry_pack") or entity_metadata.get("industry") or entity_metadata.get("demo_archive_key")
+        if industry_pack:
+            enriched["industry_pack"] = industry_pack
+        for key in ("department", "responsible_person", "supplier_category", "criticality", "risk_rating", "jurisdiction"):
+            if entity_metadata.get(key) is not None:
+                enriched[key] = entity_metadata.get(key)
+        return enriched
 
     def _empty_search_result(self, query: str, entity: Entity, version: EntityContainerVersion) -> dict[str, Any]:
         return {
@@ -329,6 +354,12 @@ class FitsContainerReader:
                 str(manifest_row.get("source_system", "")),
                 str(manifest_row.get("content_type", "")),
                 json.dumps(manifest_row.get("metadata", {}), default=str),
+                json.dumps(manifest_row.get("entity_metadata", {}), default=str),
+                str(manifest_row.get("industry_pack", "")),
+                str(manifest_row.get("department", "")),
+                str(manifest_row.get("responsible_person", "")),
+                str(manifest_row.get("supplier_category", "")),
+                str(manifest_row.get("criticality", "")),
                 payload_text or "",
                 ocr_text or "",
             ]
