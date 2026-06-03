@@ -20,6 +20,7 @@ class StructuredQuery:
     completeness_only: bool = False
     missing_evidence_type: str | None = None
     execute_with: str = "fits_index"
+    industry_key: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -111,7 +112,7 @@ class TrustVaultQueryInterpreter:
         "retention and legal hold summary",
     )
 
-    def interpret(self, raw_query: str, *, entity_external_id: str | None = None, execute: bool = False) -> StructuredQuery:
+    def interpret(self, raw_query: str, *, entity_external_id: str | None = None, execute: bool = False, industry_key: str | None = None) -> StructuredQuery:
         q = raw_query.strip()
         lower = q.lower()
         entity = entity_external_id or self._extract_entity(lower)
@@ -138,6 +139,7 @@ class TrustVaultQueryInterpreter:
             completeness_only=completeness,
             missing_evidence_type=missing_type,
             execute_with=execute_with,
+            industry_key=industry_key,
         )
 
     def _capability(
