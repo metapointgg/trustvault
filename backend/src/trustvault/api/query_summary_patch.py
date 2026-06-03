@@ -9,6 +9,8 @@ from __future__ import annotations
 from types import ModuleType
 from typing import Any, Callable
 
+from trustvault.api import industry_ruleset_patch
+
 
 SummaryRowFunc = Callable[[dict[str, Any]], dict[str, Any]]
 
@@ -20,6 +22,8 @@ def apply(query_module: ModuleType) -> None:
     Those results are suitable for a short AI narrative, so they should not be
     forced down the deterministic summary path.
     """
+
+    industry_ruleset_patch.apply()
 
     non_ai_sources = getattr(query_module, "NON_AI_SUMMARY_SOURCES", set())
     if isinstance(non_ai_sources, set):
