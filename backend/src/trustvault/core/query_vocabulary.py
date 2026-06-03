@@ -162,6 +162,8 @@ class QueryVocabularyService:
             add("document_type", "Certificate of Incorporation", "certificate of incorporation", None, requirement=True)
         if self._contains_phrase(normalised_query, "iso 27001") or self._contains_phrase(normalised_query, "iso27001"):
             add("document_type", "ISO 27001 Certificate", "ISO 27001", None, requirement=True)
+        if self._contains_phrase(normalised_query, "soc 2") or self._contains_phrase(normalised_query, "soc2") or self._contains_phrase(normalised_query, "soc 2 report") or self._contains_phrase(normalised_query, "soc 2 reports"):
+            add("document_type", "SOC 2 Report", "SOC 2", None, requirement=True)
         return matches
 
     def _risk_rating_match_is_explicit(self, query: str, match: dict[str, Any]) -> bool:
