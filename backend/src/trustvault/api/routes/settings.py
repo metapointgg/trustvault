@@ -8,6 +8,7 @@ from trustvault.api.dependencies import get_current_user, get_database, require_
 from trustvault.core.app_settings import AppSettingsService
 from trustvault.core.document_classification import DocumentClassificationService
 from trustvault.core.industry_pack_config import IndustryPackConfigService
+from trustvault.core.industry_rulesets import IndustryRulesetService
 from trustvault.core.query_vocabulary import QueryVocabularyService
 from trustvault.db.models import User
 
@@ -24,6 +25,10 @@ class DocumentClassificationSettingsRequest(BaseModel):
 
 class IndustryPackUpdateRequest(BaseModel):
     pack: dict[str, Any] = Field(default_factory=dict)
+
+
+class IndustryRulesetUpdateRequest(BaseModel):
+    ruleset: dict[str, Any] = Field(default_factory=dict)
 
 
 @router.get("")
@@ -88,6 +93,45 @@ def reset_industry_pack_by_key(
     current_user: User = Depends(require_admin),
 ) -> dict[str, Any]:
     return IndustryPackConfigService(db).reset_pack(industry_key)
+
+
+@router.get("/industry-rulesets")
+def get_industry_rulesets(
+    db: Session = Depends(get_database),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    return IndustryRulesetService(db).list_configs()
+
+
+@router.get("/industry-rulesets/{industry_key}")
+def get_industry_ruleset(
+    industry_key: str,
+    db: Session = Depends(get_database),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    return IndustryRulesetService(db).ruleset_config(industry_key)
+
+
+@router.put("/industry-rulesets/{industry_key}")
+def update_industry_ruleset(
+    industry_key: str,
+    request: IndustryRulesetUpdateRequest,
+    db: Session = Depends(get_database),
+    current_user: User = Depends(require_admin),
+) -> dict[str, Any]:
+    try:
+        return IndustryRulesetService(db).save_ruleset_config(industry_key, request.ruleset, updated_by_user_id=str(current_user.id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/industry-rulesets/{industry_key}/override")
+def reset_industry_ruleset(
+    industry_key: str,
+    db: Session = Depends(get_database),
+    current_user: User = Depends(require_admin),
+) -> dict[str, Any]:
+    return IndustryRulesetService(db).reset_ruleset_config(industry_key)
 
 
 @router.get("/document-classification")
