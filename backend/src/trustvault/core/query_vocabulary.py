@@ -32,9 +32,10 @@ class VocabularyMatch:
 
 
 class QueryVocabularyService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, industry_key: str | None = None):
         self.db = db
-        self.pack = IndustryPackConfigService(db).active_pack()
+        self.config = IndustryPackConfigService(db)
+        self.pack = self.config.get_pack(industry_key) if industry_key else self.config.active_pack()
 
     def active_pack(self) -> dict[str, Any]:
         return self.pack
@@ -58,10 +59,12 @@ class QueryVocabularyService:
             for item in vocab.get("items") or []:
                 canonical = str(item.get("canonical_value") or "")
                 aliases = [str(alias) for alias in (item.get("aliases") or [])]
-                candidates = [canonical, *aliases]
+                candidates = sorted([canonical, *aliases], key=lambda value: len(self._normalise(value)), reverse=True)
                 for candidate in candidates:
                     candidate_norm = self._normalise(candidate)
                     if not candidate_norm:
+                        continue
+                    if self._is_blocked_present_status_match(vocab, canonical, candidate_norm, normalised):
                         continue
                     if self._contains_phrase(normalised, candidate_norm):
                         key = (str(vocab.get("list_key") or ""), canonical)
@@ -80,10 +83,11 @@ class QueryVocabularyService:
                             )
                         )
                         break
+        output.extend(self._supplier_due_diligence_fallback_matches(normalised, seen))
         for group in self.pack.get("requirement_groups") or []:
             label = str(group.get("label") or "")
             aliases = [str(alias) for alias in (group.get("aliases") or [])]
-            for candidate in [label, *aliases]:
+            for candidate in sorted([label, *aliases], key=lambda value: len(self._normalise(value)), reverse=True):
                 candidate_norm = self._normalise(candidate)
                 if candidate_norm and self._contains_phrase(normalised, candidate_norm):
                     key = ("requirement_group", str(group.get("key") or label))
@@ -118,7 +122,7 @@ class QueryVocabularyService:
         for match in filters:
             if match["field_binding"] == "jurisdiction":
                 overrides["jurisdiction"] = match["canonical_value"]
-            if match["field_binding"] == "risk_rating":
+            if match["field_binding"] == "risk_rating" and self._risk_rating_match_is_explicit(query, match):
                 overrides["risk_rating"] = match["canonical_value"]
         for match in requirements:
             if match["dimension"] == "requirement_group":
@@ -136,6 +140,32 @@ class QueryVocabularyService:
                 overrides["missing_evidence_type"] = self._to_key(document_requirements[0])
         return {"overrides": overrides, "resolved_vocabulary": resolved}
 
+    def _supplier_due_diligence_fallback_matches(self, normalised_query: str, seen: set[tuple[str, str]]) -> list[VocabularyMatch]:
+        if self.pack.get("key") != "supplier_due_diligence":
+            return []
+        matches: list[VocabularyMatch] = []
+        def add(dimension: str, canonical: str, alias: str, field_binding: str | None, requirement: bool = False, confidence: float = 0.96) -> None:
+            key = (dimension, canonical)
+            if key in seen:
+                return
+            seen.add(key)
+            matches.append(VocabularyMatch(dimension, canonical, alias, field_binding, "phrase", confidence, requirement))
+
+        if self._contains_phrase(normalised_query, "it") or self._contains_phrase(normalised_query, "technology") or self._contains_phrase(normalised_query, "software"):
+            add("supplier_category", "IT", "IT", "supplier_category")
+        if self._contains_phrase(normalised_query, "critical supplier") or self._contains_phrase(normalised_query, "critical suppliers") or self._contains_phrase(normalised_query, "critical vendor") or self._contains_phrase(normalised_query, "critical vendors"):
+            add("criticality", "Critical", "critical suppliers", "criticality")
+        if self._contains_phrase(normalised_query, "certificate of incorporation") or self._contains_phrase(normalised_query, "certificates of incorporation"):
+            add("document_type", "Certificate of Incorporation", "certificate of incorporation", None, requirement=True)
+        if self._contains_phrase(normalised_query, "iso 27001") or self._contains_phrase(normalised_query, "iso27001"):
+            add("document_type", "ISO 27001 Certificate", "ISO 27001", None, requirement=True)
+        return matches
+
+    def _risk_rating_match_is_explicit(self, query: str, match: dict[str, Any]) -> bool:
+        query_norm = self._normalise(query)
+        alias_norm = self._normalise(match.get("matched_alias"))
+        return "risk" in query_norm or "risk" in alias_norm
+
     def _has_missing_intent(self, query: str) -> bool:
         normalised = self._normalise(query)
         return any(phrase in normalised for phrase in ("missing", "not supplied", "not provided", "without", "outstanding", "have not supplied", "has not supplied"))
@@ -143,10 +173,15 @@ class QueryVocabularyService:
     def _to_key(self, value: str) -> str:
         return re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
 
-    def _normalise(self, value: str) -> str:
+    def _normalise(self, value: str | None) -> str:
         return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", str(value or "").lower())).strip()
 
     def _contains_phrase(self, text: str, phrase: str) -> bool:
         if not phrase:
             return False
         return re.search(rf"(^|\s){re.escape(phrase)}($|\s)", text) is not None
+
+    def _is_blocked_present_status_match(self, vocab: dict[str, Any], canonical: str, candidate_norm: str, query_norm: str) -> bool:
+        if vocab.get("field_binding") != "evidence_status" or canonical != "Present":
+            return False
+        return any(negated in query_norm for negated in (f"not {candidate_norm}", f"no {candidate_norm}", f"without {candidate_norm}"))
