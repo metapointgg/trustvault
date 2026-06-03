@@ -30,7 +30,10 @@ def _explicit_industry(structured_or_request: Any) -> str | None:
 
 
 def _context(db: Any, raw_query: str, structured_or_request: Any) -> dict[str, Any]:
-    return active_query_context(db, raw_query, explicit_industry_key=_explicit_industry(structured_or_request))
+    explicit = _explicit_industry(structured_or_request)
+    if explicit is None and _is_generic_financial_entity_query(raw_query):
+        explicit = "financial_services"
+    return active_query_context(db, raw_query, explicit_industry_key=explicit)
 
 
 def _neutral_context() -> dict[str, Any]:
@@ -192,7 +195,8 @@ def apply(query_module: Any) -> None:
         entities = [entity for entity in entities if entity_matches_context(entity, context)]
         if structured.entity_external_id:
             entities = [entity for entity in entities if entity["external_id"] == structured.entity_external_id]
-        limited = entities[:limit]
+        limited_entities = entities[:limit]
+        rows = [_entity_discovery_row(entity) for entity in limited_entities]
         diagnostics = {
             "execution_mode": "industry_entity_discovery",
             "active_industry": context.get("industry_key"),
@@ -206,7 +210,7 @@ def apply(query_module: Any) -> None:
             "matching_entity_external_ids": [entity["external_id"] for entity in entities],
             "matched_before_limit": len(entities),
         }
-        return {"query": structured.raw_query, "result_count": len(limited), "results": limited, "filtered_entity_count": len(limited), "diagnostics": diagnostics}
+        return {"query": structured.raw_query, "result_count": len(rows), "results": rows, "filtered_entity_count": len(rows), "diagnostics": diagnostics}
 
     def patched_structured_index_search(db: Any, service: Any, structured: Any, query: str, limit: int) -> dict[str, Any]:
         context = _context(db, structured.raw_query, structured)
@@ -268,12 +272,61 @@ def _missing_documents_for_entity(db: Any, entity_row: dict[str, Any], expected_
 def _industry_missing_row(entity: dict[str, Any], document_type: str) -> dict[str, Any]:
     metadata = entity.get("metadata_json") if isinstance(entity.get("metadata_json"), dict) else {}
     return {
-        "entity_id": entity.get("id"), "entity_external_id": entity.get("external_id"), "entity_display_name": entity.get("display_name"), "entity_type": entity.get("entity_type"),
-        "risk_rating": entity.get("risk_rating"), "jurisdiction": entity.get("jurisdiction"), "industry_pack": metadata.get("industry_pack") or metadata.get("industry") or metadata.get("demo_archive_key"),
-        "department": metadata.get("department"), "responsible_person": metadata.get("responsible_person"), "supplier_category": metadata.get("supplier_category"), "criticality": metadata.get("criticality"),
-        "status": "missing", "summary_type": "missing_evidence", "rule_key": _to_key(document_type), "category": None, "document_type": document_type, "missing_evidence_type": document_type,
-        "completeness_score": None, "required_count": None, "present_count": None, "missing_count": None, "matched_evidence_object_id": None, "matched_filename": None,
+        "entity_id": entity.get("id"),
+        "entity_external_id": entity.get("external_id"),
+        "entity_display_name": entity.get("display_name"),
+        "entity_type": entity.get("entity_type"),
+        "risk_rating": entity.get("risk_rating"),
+        "jurisdiction": entity.get("jurisdiction"),
+        "industry_pack": metadata.get("industry_pack") or metadata.get("industry") or metadata.get("demo_archive_key"),
+        "department": metadata.get("department"),
+        "responsible_person": metadata.get("responsible_person"),
+        "supplier_category": metadata.get("supplier_category"),
+        "criticality": metadata.get("criticality"),
+        "status": "missing",
+        "summary_type": "missing_evidence",
+        "rule_key": _to_key(document_type),
+        "category": None,
+        "document_type": document_type,
+        "missing_evidence_type": document_type,
+        "completeness_score": None,
+        "required_count": None,
+        "present_count": None,
+        "missing_count": None,
+        "matched_evidence_object_id": None,
+        "matched_filename": None,
         "snippet": f"Missing required evidence: {document_type}",
+    }
+
+
+def _entity_discovery_row(entity: dict[str, Any]) -> dict[str, Any]:
+    metadata = entity.get("metadata_json") if isinstance(entity.get("metadata_json"), dict) else {}
+    industry_pack = metadata.get("industry_pack") or metadata.get("industry") or metadata.get("demo_archive_key")
+    return {
+        **entity,
+        "entity_id": entity.get("id"),
+        "entity_external_id": entity.get("external_id"),
+        "entity_display_name": entity.get("display_name"),
+        "filename": "Entity record",
+        "category": "entity_metadata",
+        "document_type": "Entity Metadata",
+        "source_system": "TrustVault",
+        "summary_type": "entity_discovery",
+        "industry_pack": industry_pack,
+        "department": metadata.get("department"),
+        "responsible_person": metadata.get("responsible_person"),
+        "supplier_category": metadata.get("supplier_category"),
+        "criticality": metadata.get("criticality"),
+        "condition": metadata.get("condition"),
+        "treatment_status": metadata.get("treatment_status"),
+        "service_type": metadata.get("service_type"),
+        "contract_owner": metadata.get("contract_owner"),
+        "snippet": (
+            f"{entity.get('entity_type') or 'entity'} {entity.get('external_id')} · "
+            f"{entity.get('display_name')} · risk {entity.get('risk_rating') or '-'} · "
+            f"jurisdiction {entity.get('jurisdiction') or '-'} · "
+            f"evidence objects {entity.get('evidence_object_count') or 0}"
+        ),
     }
 
 
@@ -380,6 +433,18 @@ def _has_entity_list_intent(query: str) -> bool:
         return False
     evidence_terms = {"evidence", "document", "documents", "documentation", "reports", "report", "certificate", "certificates", "agreement", "agreements"}
     return not bool(tokens & evidence_terms)
+
+
+def _is_generic_financial_entity_query(query: str) -> bool:
+    normalised = _normalise(query)
+    tokens = {token for token in normalised.split("_") if token}
+    if not tokens & {"entity", "entities", "customer", "customers", "client", "clients"}:
+        return False
+    if tokens & {"patient", "patients", "supplier", "suppliers", "vendor", "vendors", "doctor", "doctors", "clinician", "clinicians"}:
+        return False
+    if any(term in normalised for term in ("oncology", "cancer", "consent", "dr_jones", "dr_smith", "iso_27001", "soc_2")):
+        return False
+    return True
 
 
 def _to_key(value: str) -> str:
