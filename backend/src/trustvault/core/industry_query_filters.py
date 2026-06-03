@@ -37,20 +37,22 @@ def active_industry_key(db: Session) -> str:
 def infer_industry_key(db: Session, raw_query: str, explicit_industry_key: str | None = None) -> str:
     """Resolve industry context for a query.
 
-    The Search & Query page may provide an explicit per-query industry. That
-    wins over term inference and avoids changing the saved client default merely
-    to run a different type of demo/search. If no explicit context is supplied,
-    subject terms are used before falling back to the saved default.
+    Explicit per-query context wins. Without an explicit context, subject terms
+    are used before the saved default. Generic TrustVault terms such as
+    entity/entities/customer/client are treated as financial-services archive
+    terms, so Auto does not accidentally inherit a demo industry such as
+    healthcare from the global fallback.
     """
     explicit = str(explicit_industry_key or "").strip().lower()
     if explicit and explicit not in {"auto", "infer", "default"}:
         return explicit
     query = _normalise(raw_query)
-    if any(term in query.split("_") for term in ("supplier", "suppliers", "vendor", "vendors")) or any(phrase in query for phrase in ("service_provider", "service_providers")):
+    tokens = set(query.split("_"))
+    if tokens & {"supplier", "suppliers", "vendor", "vendors"} or any(phrase in query for phrase in ("service_provider", "service_providers")):
         return "supplier_due_diligence"
-    if any(term in query.split("_") for term in ("patient", "patients", "clinician", "doctor")) or any(phrase in query for phrase in ("dr_jones", "dr_smith", "oncology", "cancer", "consent_form")):
+    if tokens & {"patient", "patients", "clinician", "clinicians", "doctor", "doctors"} or any(phrase in query for phrase in ("dr_jones", "dr_smith", "oncology", "cancer", "consent_form")):
         return "healthcare"
-    if any(term in query.split("_") for term in ("customer", "customers", "client", "clients")):
+    if tokens & {"customer", "customers", "client", "clients", "entity", "entities"}:
         return "financial_services"
     return active_industry_key(db)
 
