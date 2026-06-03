@@ -35,12 +35,30 @@ def apply(query_module: Any) -> None:
 
     def patched_interpret(request: Any, db: Any) -> tuple[Any, dict[str, Any]]:
         structured, meta = original_interpret(request, db)
-        service = QueryVocabularyService(db)
+        context = active_query_context(db, request.query)
+        service = QueryVocabularyService(db, industry_key=context.get("industry_key"))
         resolved = service.legacy_structured_overrides(request.query)
         overrides = resolved.get("overrides") or {}
-        meta["resolved_vocabulary"] = resolved.get("resolved_vocabulary")
+        context_document_types = document_types_for_missing_check(context)
+        if _has_missing_intent(request.query) and context_document_types:
+            overrides = {
+                **overrides,
+                "capability": "completeness_check",
+                "completeness_only": True,
+                "document_types": overrides.get("document_types") or context_document_types,
+                "missing_evidence_type": overrides.get("missing_evidence_type") or _to_key(context_document_types[0]),
+                "execute_with": "fits_index",
+            }
+        if _has_missing_intent(request.query) and context.get("requirement_groups") and not context_document_types:
+            overrides = {
+                **overrides,
+                "capability": "completeness_check",
+                "completeness_only": True,
+                "missing_evidence_type": overrides.get("missing_evidence_type") or "mandatory_evidence",
+                "execute_with": "fits_index",
+            }
+        meta["resolved_vocabulary"] = resolved.get("resolved_vocabulary") or context.get("resolved_vocabulary")
         meta["vocabulary_overrides"] = overrides
-        context = active_query_context(db, request.query)
         meta["active_industry_context"] = {
             "industry_key": context.get("industry_key"),
             "metadata_filters": context.get("metadata_filters"),
@@ -236,6 +254,11 @@ def _row_matches_context(db: Any, row: dict[str, Any], context: dict[str, Any]) 
         if not any(expected and expected in _normalise(value) for value in actual_values):
             return False
     return True
+
+
+def _has_missing_intent(query: str) -> bool:
+    normalised = _normalise(query)
+    return any(phrase in normalised for phrase in ("missing", "not_supplied", "not_provided", "without", "outstanding", "have_not_supplied", "has_not_supplied"))
 
 
 def _to_key(value: str) -> str:
