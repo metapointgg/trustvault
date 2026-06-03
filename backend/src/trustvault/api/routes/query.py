@@ -158,7 +158,7 @@ def _structured_index_search(db: Session, service: TrustVaultFeatureService, str
             if not any(_norm(item) in doc or doc in _norm(item) for item in structured.document_types):
                 continue
         if structured.categories:
-            category = _norm(row.get("category") or row.get("object_type"))
+            category = _norm(_metadata_value(row, "category") or row.get("object_type"))
             if not any(_norm(item) == category for item in structured.categories):
                 continue
         if not _term_matches(terms, row.get("_searchable") or "") and not (structured.document_types or structured.categories):
@@ -260,7 +260,37 @@ def _completeness_check_result(service: TrustVaultFeatureService, structured: St
 
 def _archive_status_result(service: TrustVaultFeatureService, structured: StructuredQuery) -> dict[str, Any]:
     status = service.archive_status()
-    return {"query": structured.raw_query, "result_count": 1, "results": [status], "diagnostics": {"execution_mode": "archive_status", "requested_industry_key": structured.industry_key}}
+    configuration = status.get("configuration") if isinstance(status.get("configuration"), dict) else {}
+    checks = status.get("archive_checks") if isinstance(status.get("archive_checks"), dict) else {}
+    display_row = {
+        **status,
+        "entity_external_id": "ARCHIVE",
+        "entity_display_name": "TrustVault archive",
+        "filename": "Archive status",
+        "category": "archive_status",
+        "document_type": "Archive Status",
+        "source_system": "TrustVault",
+        "status": "ok" if not status.get("failed_jobs") and not status.get("integrity_issue_count") else "attention_required",
+        "summary_type": "archive_status",
+        "snippet": (
+            f"{status.get('entity_count', 0)} entities; "
+            f"{status.get('current_fits_container_count', 0)} current FITS containers; "
+            f"{status.get('fits_index_entry_count', 0)} indexed evidence objects; "
+            f"{status.get('queued_jobs', 0)} queued jobs; "
+            f"{status.get('failed_jobs', 0)} failed jobs."
+        ),
+        "storage_provider": configuration.get("storage_provider"),
+        "queue_provider": configuration.get("queue_provider"),
+        "source_folder": configuration.get("source_folder"),
+        "containers_folder": configuration.get("containers_folder"),
+        "index_path": configuration.get("index_path"),
+        "exports_folder": configuration.get("exports_folder"),
+        "fits_source_of_truth": checks.get("fits_source_of_truth"),
+        "index_rebuildable": checks.get("index_rebuildable"),
+        "direct_fits_search_available": checks.get("direct_fits_search_available"),
+        "cross_archive_index_available": checks.get("cross_archive_index_available"),
+    }
+    return {"query": structured.raw_query, "result_count": 1, "results": [display_row], "diagnostics": {"execution_mode": "archive_status", "requested_industry_key": structured.industry_key}}
 
 
 def _entity_discovery_result(service: TrustVaultFeatureService, structured: StructuredQuery, limit: int) -> dict[str, Any]:
