@@ -6,10 +6,11 @@ Usage:
     --base-url http://localhost:8000 \
     --output /tmp/trustvault-query-regression.json
 
-The script intentionally does not decide pass/fail. It records the configured
-expectations alongside the actual structured query, interpretation context,
-execution source, diagnostics and returned entity ids. Paste the output into the
-next ChatGPT session for validation.
+The runner sets the configured client industry before each case, executes the
+query, and restores the original industry at the end. The JSON report records the
+configured expectations alongside the actual structured query, interpretation
+context, execution source, diagnostics and returned entity ids. Paste the output
+into the next ChatGPT session for validation.
 """
 
 from __future__ import annotations
@@ -37,6 +38,23 @@ def request_json(method: str, url: str, *, token: str, body: dict[str, Any] | No
     except urllib.error.HTTPError as exc:
         payload = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"{method} {url} failed with HTTP {exc.code}: {payload}") from exc
+
+
+def current_client_industry(base_url: str, token: str) -> str | None:
+    data = request_json("GET", f"{base_url}/api/v1/settings/industry-packs", token=token)
+    value = data.get("active_industry")
+    return str(value) if value else None
+
+
+def set_client_industry(base_url: str, token: str, industry: str | None) -> None:
+    if not industry:
+        return
+    request_json(
+        "PATCH",
+        f"{base_url}/api/v1/settings",
+        token=token,
+        body={"updates": {"client_industry": industry}},
+    )
 
 
 def compact_response(case: dict[str, Any], response: dict[str, Any], elapsed_ms: int) -> dict[str, Any]:
@@ -90,41 +108,48 @@ def main() -> int:
         return 2
 
     base_url = args.base_url.rstrip("/")
+    original_industry = current_client_industry(base_url, args.token)
     manifest = request_json("GET", f"{base_url}/api/v1/query/test-cases", token=args.token)
     cases = manifest.get("test_cases") or []
     report: dict[str, Any] = {
         "base_url": base_url,
         "generated_at_epoch": int(time.time()),
+        "original_client_industry": original_industry,
         "test_case_count": len(cases),
         "cases": [],
     }
 
-    for case in cases:
-        start = time.time()
-        try:
-            response = request_json(
-                "POST",
-                f"{base_url}/api/v1/query/execute",
-                token=args.token,
-                body={
-                    "query": case["query"],
-                    "mode": case.get("mode", "auto"),
-                    "limit": args.limit,
-                    "include_ai_summary": False,
-                },
-            )
-            elapsed_ms = int((time.time() - start) * 1000)
-            report["cases"].append(compact_response(case, response, elapsed_ms))
-        except Exception as exc:  # noqa: BLE001 - command-line diagnostic output
-            elapsed_ms = int((time.time() - start) * 1000)
-            report["cases"].append({
-                "id": case.get("id"),
-                "industry": case.get("industry"),
-                "query": case.get("query"),
-                "elapsed_ms": elapsed_ms,
-                "expect": case.get("expect") or {},
-                "error": str(exc),
-            })
+    try:
+        for case in cases:
+            start = time.time()
+            try:
+                set_client_industry(base_url, args.token, case.get("industry"))
+                response = request_json(
+                    "POST",
+                    f"{base_url}/api/v1/query/execute",
+                    token=args.token,
+                    body={
+                        "query": case["query"],
+                        "mode": case.get("mode", "auto"),
+                        "limit": args.limit,
+                        "include_ai_summary": False,
+                    },
+                )
+                elapsed_ms = int((time.time() - start) * 1000)
+                report["cases"].append(compact_response(case, response, elapsed_ms))
+            except Exception as exc:  # noqa: BLE001 - command-line diagnostic output
+                elapsed_ms = int((time.time() - start) * 1000)
+                report["cases"].append({
+                    "id": case.get("id"),
+                    "industry": case.get("industry"),
+                    "query": case.get("query"),
+                    "elapsed_ms": elapsed_ms,
+                    "expect": case.get("expect") or {},
+                    "error": str(exc),
+                })
+    finally:
+        set_client_industry(base_url, args.token, original_industry)
+        report["restored_client_industry"] = original_industry
 
     text = json.dumps(report, indent=2, sort_keys=True)
     if args.output:
