@@ -22,12 +22,14 @@ router = APIRouter(prefix="/api/v1/query", tags=["query"])
 class InterpretRequest(BaseModel):
     query: str = Field(min_length=1)
     entity_external_id: str | None = None
+    industry_key: str | None = None
     mode: str = Field(default="auto", pattern="^(deterministic|ai|auto)$")
 
 
 class ExecuteRequest(BaseModel):
     query: str = Field(min_length=1)
     entity_external_id: str | None = None
+    industry_key: str | None = None
     limit: int = Field(default=50, ge=1, le=500)
     mode: str = Field(default="auto", pattern="^(deterministic|ai|auto)$")
     include_ai_summary: bool = False
@@ -38,10 +40,15 @@ NON_AI_SUMMARY_SOURCES = {"entity_metadata", "archive_status", "payload_metadata
 
 
 def _interpret(request: InterpretRequest | ExecuteRequest, db: Session) -> tuple[StructuredQuery, dict[str, Any]]:
-    structured = TrustVaultQueryInterpreter().interpret(request.query, entity_external_id=request.entity_external_id)
+    structured = TrustVaultQueryInterpreter().interpret(
+        request.query,
+        entity_external_id=request.entity_external_id,
+        industry_key=request.industry_key,
+    )
     meta: dict[str, Any] = {
         "mode": request.mode,
         "deterministic_query": structured.to_dict(),
+        "requested_industry_key": request.industry_key,
         "ai_used": False,
         "ai_provider": "trustvault",
         "ai_model": "deterministic_query_interpreter",
@@ -172,6 +179,7 @@ def _structured_index_search(db: Session, service: TrustVaultFeatureService, str
             "candidate_index_entry_count": len(entries),
             "matched_before_limit": len(rows),
             "requested_entity_external_id": structured.entity_external_id,
+            "requested_industry_key": structured.industry_key,
             "requested_risk_rating": structured.risk_rating,
             "requested_jurisdiction": structured.jurisdiction,
             "categories": structured.categories,
@@ -239,6 +247,7 @@ def _completeness_check_result(service: TrustVaultFeatureService, structured: St
         "diagnostics": {
             "execution_mode": "completeness_check",
             "requested_entity_external_id": structured.entity_external_id,
+            "requested_industry_key": structured.industry_key,
             "requested_risk_rating": structured.risk_rating,
             "requested_jurisdiction": structured.jurisdiction,
             "missing_evidence_type": structured.missing_evidence_type,
@@ -251,12 +260,12 @@ def _completeness_check_result(service: TrustVaultFeatureService, structured: St
 
 def _archive_status_result(service: TrustVaultFeatureService, structured: StructuredQuery) -> dict[str, Any]:
     status = service.archive_status()
-    return {"query": structured.raw_query, "result_count": 1, "results": [status], "diagnostics": {"execution_mode": "archive_status"}}
+    return {"query": structured.raw_query, "result_count": 1, "results": [status], "diagnostics": {"execution_mode": "archive_status", "requested_industry_key": structured.industry_key}}
 
 
 def _entity_discovery_result(service: TrustVaultFeatureService, structured: StructuredQuery, limit: int) -> dict[str, Any]:
     rows = service.customers(risk_rating=structured.risk_rating, jurisdiction=structured.jurisdiction, limit=limit)
-    return {"query": structured.raw_query, "result_count": len(rows), "results": rows, "diagnostics": {"execution_mode": "entity_discovery"}}
+    return {"query": structured.raw_query, "result_count": len(rows), "results": rows, "diagnostics": {"execution_mode": "entity_discovery", "requested_industry_key": structured.industry_key}}
 
 
 def _summarise_if_requested(request: ExecuteRequest, rows: list[dict[str, Any]], db: Session, execution_source: str, audit_logger: AuditLogger) -> dict[str, Any] | None:
