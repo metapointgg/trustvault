@@ -33,6 +33,16 @@ def _context(db: Any, raw_query: str, structured_or_request: Any) -> dict[str, A
     return active_query_context(db, raw_query, explicit_industry_key=_explicit_industry(structured_or_request))
 
 
+def _neutral_context() -> dict[str, Any]:
+    return {
+        "industry_key": None,
+        "resolved_vocabulary": {"industry_pack": None, "filters": [], "requirements": [], "matches": []},
+        "metadata_filters": [],
+        "document_requirements": [],
+        "requirement_groups": [],
+    }
+
+
 def apply(query_module: Any) -> None:
     """Apply validated industry vocabulary matches to legacy query output/execution."""
 
@@ -45,6 +55,20 @@ def apply(query_module: Any) -> None:
 
     def patched_interpret(request: Any, db: Any) -> tuple[Any, dict[str, Any]]:
         structured, meta = original_interpret(request, db)
+
+        if structured.capability == "archive_status":
+            context = _neutral_context()
+            meta["resolved_vocabulary"] = context["resolved_vocabulary"]
+            meta["vocabulary_overrides"] = {}
+            meta["active_industry_context"] = {
+                "industry_key": None,
+                "source": "not_applicable_archive_status",
+                "metadata_filters": [],
+                "document_requirements": [],
+                "requirement_groups": [],
+            }
+            return structured, meta
+
         context = _context(db, request.query, request)
         service = QueryVocabularyService(db, industry_key=context.get("industry_key"))
         resolved = service.legacy_structured_overrides(request.query)
