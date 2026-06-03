@@ -74,6 +74,7 @@ def apply(query_module: Any) -> None:
         diagnostics = {
             "execution_mode": "industry_completeness_check",
             "active_industry": context.get("industry_key"),
+            "industry_filter_source": "entity_and_fits_metadata",
             "metadata_filters": context.get("metadata_filters"),
             "requested_entity_external_id": structured.entity_external_id,
             "requested_risk_rating": structured.risk_rating,
@@ -89,7 +90,6 @@ def apply(query_module: Any) -> None:
                 for document_type in missing:
                     rows.append(_industry_missing_row(entity, document_type))
                 continue
-            # Fall back to the existing completeness rules for financial-services/default checks.
             run = service.evaluate_completeness(entity["external_id"])
             missing_rows = [row for row in run.get("results", []) if query_module._missing_rule_matches(row, structured.missing_evidence_type)]
             rows.extend(query_module._completeness_result_row(entity, run, missing_rule) for missing_rule in missing_rows)
@@ -110,12 +110,13 @@ def apply(query_module: Any) -> None:
     def patched_structured_index_search(db: Any, service: Any, structured: Any, query: str, limit: int) -> dict[str, Any]:
         context = active_query_context(db, structured.raw_query)
         result = original_structured_index_search(db, service, structured, query, 5000)
-        rows = [row for row in result.get("results", []) if _row_matches_context(row, context)]
+        rows = [row for row in result.get("results", []) if _row_matches_context(db, row, context)]
         limited = rows[:limit]
         diagnostics = dict(result.get("diagnostics") or {})
         diagnostics.update(
             {
                 "active_industry": context.get("industry_key"),
+                "industry_filter_source": "entity_and_fits_metadata",
                 "metadata_filters": context.get("metadata_filters"),
                 "active_industry_filtered_before_limit": len(rows),
                 "active_industry_filtered_entity_external_ids": sorted({str(row.get("entity_external_id")) for row in rows if row.get("entity_external_id")})[:100],
@@ -161,6 +162,7 @@ def _industry_missing_row(entity: dict[str, Any], document_type: str) -> dict[st
         "entity_type": entity.get("entity_type"),
         "risk_rating": entity.get("risk_rating"),
         "jurisdiction": entity.get("jurisdiction"),
+        "industry_pack": metadata.get("industry_pack") or metadata.get("industry") or metadata.get("demo_archive_key"),
         "department": metadata.get("department"),
         "responsible_person": metadata.get("responsible_person"),
         "supplier_category": metadata.get("supplier_category"),
@@ -181,26 +183,39 @@ def _industry_missing_row(entity: dict[str, Any], document_type: str) -> dict[st
     }
 
 
-def _row_matches_context(row: dict[str, Any], context: dict[str, Any]) -> bool:
+def _row_matches_context(db: Any, row: dict[str, Any], context: dict[str, Any]) -> bool:
+    entity = None
+    entity_id = row.get("entity_id")
+    if entity_id:
+        try:
+            entity = db.get(Entity, entity_id)
+        except Exception:
+            entity = None
+    if entity is None and row.get("entity_external_id"):
+        entity = db.scalars(select(Entity).where(Entity.external_id == row.get("entity_external_id"))).first()
+    if entity is None:
+        return False
+
     entity_row = {
-        "external_id": row.get("entity_external_id") or row.get("external_id"),
-        "entity_type": row.get("entity_type"),
-        "metadata_json": row.get("metadata") if isinstance(row.get("metadata"), dict) else {},
+        "external_id": entity.external_id,
+        "entity_type": entity.entity_type,
+        "metadata_json": entity.metadata_json or {},
     }
-    # FITS rows can contain nested evidence metadata rather than entity metadata, so
-    # industry filtering for indexed rows is primarily by entity id prefix/metadata.
-    external_id = str(entity_row.get("external_id") or "")
-    industry = context.get("industry_key")
-    if industry == "healthcare" and not external_id.startswith("PAT-"):
+    if not entity_matches_context(entity_row, context):
         return False
-    if industry == "supplier_due_diligence" and not external_id.startswith("SUP-"):
-        return False
-    if industry == "financial_services" and external_id.startswith(("PAT-", "SUP-")):
-        return False
+
     for item in context.get("metadata_filters") or []:
         field = item.get("field_binding")
         expected = _normalise(item.get("canonical_value"))
-        actual_values = [row.get(field), row.get("metadata", {}).get(field) if isinstance(row.get("metadata"), dict) else None, row.get("text_content"), row.get("filename")]
+        metadata = entity.metadata_json or {}
+        evidence_metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        actual_values = [
+            metadata.get(field),
+            row.get(field),
+            evidence_metadata.get(field),
+            row.get("text_content"),
+            row.get("filename"),
+        ]
         if not any(expected and expected in _normalise(value) for value in actual_values):
             return False
     return True
