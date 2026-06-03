@@ -119,8 +119,8 @@ INDUSTRY_PACKS: dict[str, IndustryPack] = {
                 items=(
                     VocabularyItem("Passport", ("identity document", "id evidence")),
                     VocabularyItem("Proof of Address", ("poa", "utility bill", "address evidence")),
-                    VocabularyItem("Source of Funds", ("sof", "funds evidence")),
-                    VocabularyItem("Source of Wealth", ("sow", "wealth evidence")),
+                    VocabularyItem("Source of Funds", ("sof", "funds evidence", "source of funds evidence")),
+                    VocabularyItem("Source of Wealth", ("sow", "wealth evidence", "source of wealth evidence")),
                     VocabularyItem("Account Opening Application", ("application", "onboarding form")),
                     VocabularyItem("CDD Review", ("kyc review", "customer due diligence")),
                     VocabularyItem("Screening Evidence", ("sanctions screening", "pep screening", "adverse media")),
@@ -144,7 +144,7 @@ INDUSTRY_PACKS: dict[str, IndustryPack] = {
         + (
             VocabularyList("department", "Department", field_binding="department", items=(VocabularyItem("Oncology", ("cancer", "cancer care")), VocabularyItem("Cardiology", ("heart",)), VocabularyItem("Radiology", ("imaging",)))),
             VocabularyList("responsible_person", "Responsible clinician", field_binding="responsible_person", items=(VocabularyItem("Dr Jones", ("doctor jones", "jones")), VocabularyItem("Dr Smith", ("doctor smith", "smith")))),
-            VocabularyList("document_type", "Document type", is_filterable=False, is_requirement_dimension=True, items=(VocabularyItem("Consent Form", ("consent", "patient consent")), VocabularyItem("Referral Letter", ("gp letter", "referral")), VocabularyItem("Treatment Plan", ("care plan", "clinical plan")), VocabularyItem("Diagnostic Report", ("diagnostics", "report")),)),
+            VocabularyList("document_type", "Document type", is_filterable=False, is_requirement_dimension=True, items=(VocabularyItem("Consent Form", ("consent", "patient consent")), VocabularyItem("Referral Letter", ("gp letter", "referral")), VocabularyItem("Treatment Plan", ("care plan", "clinical plan")), VocabularyItem("Diagnostic Report", ("diagnostics", "diagnostic", "diagnostic report", "diagnostic reports", "reports", "report")),)),
         ),
         requirement_groups=(RequirementGroup("patient_onboarding", "Patient Onboarding", ("patient onboarding",), ("Referral Letter", "Medical History")), RequirementGroup("treatment_consent", "Treatment Consent", ("consent", "consent form", "treatment consent"), ("Consent Form",))),
     ),
@@ -156,7 +156,7 @@ INDUSTRY_PACKS: dict[str, IndustryPack] = {
         vocabulary_lists=BASE_VOCABULARY
         + (
             VocabularyList("supplier_category", "Supplier category", field_binding="supplier_category", items=(VocabularyItem("IT", ("technology", "tech", "software")), VocabularyItem("Legal", ("law firm", "legal services")), VocabularyItem("Facilities", ("property services", "premises")))),
-            VocabularyList("document_type", "Document type", is_filterable=False, is_requirement_dimension=True, items=(VocabularyItem("Certificate of Incorporation", ("coi", "incorporation certificate", "company incorporation certificate")), VocabularyItem("Insurance Certificate", ("insurance", "public liability")), VocabularyItem("ISO 27001 Certificate", ("iso27001", "information security certificate")), VocabularyItem("SOC 2 Report", ("soc2", "service organisation control")), VocabularyItem("Data Processing Agreement", ("dpa",)),)),
+            VocabularyList("document_type", "Document type", is_filterable=False, is_requirement_dimension=True, items=(VocabularyItem("Certificate of Incorporation", ("coi", "incorporation certificate", "company incorporation certificate")), VocabularyItem("Insurance Certificate", ("insurance", "public liability")), VocabularyItem("ISO 27001 Certificate", ("iso27001", "iso 27001", "information security certificate")), VocabularyItem("SOC 2 Report", ("soc2", "soc 2", "service organisation control")), VocabularyItem("Data Processing Agreement", ("dpa", "data processing agreement", "data processing agreements")),)),
         ),
         requirement_groups=(RequirementGroup("supplier_onboarding", "Supplier Onboarding", ("supplier onboarding", "vendor onboarding"), ("Certificate of Incorporation", "Insurance Certificate")), RequirementGroup("cyber_due_diligence", "Cyber Due Diligence", ("cyber", "security review"), ("ISO 27001 Certificate", "SOC 2 Report"))),
     ),
