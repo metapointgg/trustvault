@@ -17,6 +17,7 @@ ENRICHED_QUERY_SCENARIOS: list[dict[str, Any]] = [
         "examples": [
             "Use TrustVault to list high risk customers.",
             "Use TrustVault to list high risk customers in Guernsey.",
+            "Use TrustVault to list high risk entities in Guernsey.",
             "Use TrustVault to list medium risk entities in Jersey.",
             "Use TrustVault to show high risk entities in Guernsey missing onboarding documentation.",
             "Use TrustVault to identify entities missing mandatory evidence.",
@@ -81,6 +82,47 @@ ENRICHED_QUERY_SCENARIOS: list[dict[str, Any]] = [
 ]
 
 CORE_QUERY_REGRESSION_TEST_CASES: list[dict[str, Any]] = [
+    {
+        "id": "archive_status_neutral_context_even_when_saved_industry_healthcare",
+        "industry": "healthcare",
+        "query": "tell me how many entities, containers and indexed evidence objects are available.",
+        "mode": "auto",
+        "expect": {
+            "capability": "archive_status",
+            "execution_source": "archive_status",
+            "active_industry_is_null": True,
+            "context_source": "not_applicable_archive_status",
+            "min_result_count": 1,
+        },
+    },
+    {
+        "id": "archive_config_neutral_context_even_when_saved_industry_healthcare",
+        "industry": "healthcare",
+        "query": "show the configured source folder, containers folder, index path and exports folder.",
+        "mode": "auto",
+        "expect": {
+            "capability": "archive_status",
+            "execution_source": "archive_status",
+            "active_industry_is_null": True,
+            "context_source": "not_applicable_archive_status",
+            "min_result_count": 1,
+        },
+    },
+    {
+        "id": "auto_generic_entities_infers_financial_services_even_when_saved_industry_healthcare",
+        "industry": "healthcare",
+        "query": "list high risk entities in Guernsey.",
+        "mode": "auto",
+        "expect": {
+            "capability": "entity_discovery",
+            "execution_source": "entity_metadata",
+            "active_industry": "financial_services",
+            "risk_rating": "High",
+            "jurisdiction": "Guernsey",
+            "min_result_count": 2,
+            "expected_entity_external_ids": ["CUST-000046", "CUST-999001"],
+        },
+    },
     {
         "id": "fs_guernsey_high_risk_missing_onboarding",
         "industry": "financial_services",
@@ -235,6 +277,10 @@ def _case_id(group: str, index: int, query: str) -> str:
 def _sample_case_expectation(group: str, example: str) -> dict[str, Any]:
     expectation: dict[str, Any] = {"smoke_only": True, "no_error": True}
     lower = example.lower()
+    if "how many entities, containers and indexed evidence objects" in lower or "configured source folder" in lower or "archive status" in lower:
+        return {**expectation, "capability": "archive_status", "execution_source": "archive_status", "active_industry_is_null": True, "context_source": "not_applicable_archive_status", "min_result_count": 1}
+    if "list high risk entities in guernsey" in lower:
+        return {**expectation, "active_industry": "financial_services", "capability": "entity_discovery", "execution_source": "entity_metadata", "risk_rating": "High", "jurisdiction": "Guernsey", "min_result_count": 2, "expected_entity_external_ids": ["CUST-000046", "CUST-999001"]}
     if "check patient evidence completeness for eleanor hughes" in lower:
         return {**expectation, "active_industry": "healthcare", "capability": "completeness_check", "execution_source": "completeness_rules", "expected_entity_external_ids": ["PAT-ONC-0001"], "forbidden_entity_external_ids": ["PAT-ONC-0002", "PAT-CAR-0003"], "min_result_count": 1}
     if "summarise entity cust-000001" in lower or "summarize entity cust-000001" in lower or "fits containers available for cust-000001" in lower or "evidence counts by category" in lower:
