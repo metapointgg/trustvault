@@ -41,15 +41,27 @@ def active_query_context(db: Session, raw_query: str) -> dict[str, Any]:
 
 
 def entity_matches_active_industry(entity_row: dict[str, Any], industry_key: str) -> bool:
+    """Match an entity to an industry using metadata, not naming conventions.
+
+    `industry_pack` is the strongest signal. `demo_archive_key` is retained as a
+    secondary source for generated/demo data. Entity type is an industry template
+    fallback only, so the platform can still work with older records that do not
+    yet have industry metadata.
+    """
+
     metadata = entity_row.get("metadata_json") if isinstance(entity_row.get("metadata_json"), dict) else {}
     entity_type = _normalise(entity_row.get("entity_type"))
-    tagged_industry = _normalise(metadata.get("industry_pack") or metadata.get("demo_archive_key"))
+    tagged_industry = _normalise(metadata.get("industry_pack") or metadata.get("industry") or metadata.get("demo_archive_key"))
+    requested = _normalise(industry_key)
 
-    if industry_key == "financial_services":
-        return tagged_industry in {"", "financial_services"} and entity_type in FINANCIAL_ENTITY_TYPES
+    if tagged_industry:
+        return tagged_industry == requested
 
-    expected_entity_types = INDUSTRY_ENTITY_TYPES.get(industry_key, set())
-    return tagged_industry == _normalise(industry_key) or entity_type in expected_entity_types
+    if requested == "financial_services":
+        return entity_type in FINANCIAL_ENTITY_TYPES
+
+    expected_entity_types = INDUSTRY_ENTITY_TYPES.get(requested, set())
+    return entity_type in expected_entity_types
 
 
 def entity_matches_metadata_filters(entity_row: dict[str, Any], filters: list[dict[str, Any]]) -> bool:
@@ -74,13 +86,13 @@ def document_types_for_missing_check(context: dict[str, Any]) -> list[str]:
     if docs:
         return docs
     groups = {_normalise(item) for item in context.get("requirement_groups") or []}
-    if "treatment consent" in groups:
+    if "treatment_consent" in groups:
         return ["Consent Form"]
-    if "patient onboarding" in groups:
+    if "patient_onboarding" in groups:
         return ["Referral Letter", "Medical History"]
-    if "supplier onboarding" in groups:
+    if "supplier_onboarding" in groups:
         return ["Certificate of Incorporation", "Insurance Certificate"]
-    if "cyber due diligence" in groups:
+    if "cyber_due_diligence" in groups:
         return ["ISO 27001 Certificate", "SOC 2 Report"]
     if "onboarding" in groups:
         return ["Account Opening Application", "Passport", "Proof of Address"]
