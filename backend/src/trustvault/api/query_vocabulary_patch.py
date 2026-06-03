@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from sqlalchemy import select
@@ -313,8 +314,8 @@ def _has_entity_list_intent(query: str) -> bool:
 
 
 def _to_key(value: str) -> str:
-    return _normalise(value).replace(" ", "_")
+    return _normalise(value)
 
 
 def _normalise(value: Any) -> str:
-    return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return re.sub(r"_+", "_", re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower())).strip("_")
