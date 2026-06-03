@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 ENRICHED_QUERY_SCENARIOS: list[dict[str, Any]] = [
@@ -79,7 +80,7 @@ ENRICHED_QUERY_SCENARIOS: list[dict[str, Any]] = [
     },
 ]
 
-QUERY_REGRESSION_TEST_CASES: list[dict[str, Any]] = [
+CORE_QUERY_REGRESSION_TEST_CASES: list[dict[str, Any]] = [
     {
         "id": "fs_guernsey_high_risk_missing_onboarding",
         "industry": "financial_services",
@@ -92,6 +93,8 @@ QUERY_REGRESSION_TEST_CASES: list[dict[str, Any]] = [
             "risk_rating": "High",
             "jurisdiction": "Guernsey",
             "min_result_count": 1,
+            "expected_entity_external_ids": ["CUST-999001"],
+            "document_types": ["Proof of Address"],
         },
     },
     {
@@ -195,4 +198,57 @@ QUERY_REGRESSION_TEST_CASES: list[dict[str, Any]] = [
             "forbidden_entity_external_ids": ["SUP-IT-0001", "SUP-LEGAL-0003"],
         },
     },
+]
+
+
+def _industry_for_group(group: str) -> str:
+    group_lower = group.lower()
+    if "healthcare" in group_lower:
+        return "healthcare"
+    if "supplier" in group_lower:
+        return "supplier_due_diligence"
+    return "financial_services"
+
+
+def _case_id(group: str, index: int, query: str) -> str:
+    prefix = re.sub(r"[^a-z0-9]+", "_", group.lower()).strip("_")[:42]
+    slug = re.sub(r"[^a-z0-9]+", "_", query.lower()).strip("_")[:54]
+    return f"sample_{prefix}_{index + 1:02d}_{slug}"
+
+
+def _sample_case_expectation(group: str, example: str) -> dict[str, Any]:
+    expectation: dict[str, Any] = {"smoke_only": True, "no_error": True}
+    lower = example.lower()
+    if "supplier" in group.lower() or "supplier" in lower:
+        expectation["active_industry"] = "supplier_due_diligence"
+    elif "healthcare" in group.lower() or any(term in lower for term in ("patient", "patients", "oncology", "dr jones", "cancer", "consent")):
+        expectation["active_industry"] = "healthcare"
+    elif any(term in lower for term in ("customer", "customers", "entity", "entities", "cdd", "onboarding", "screening", "source of funds")):
+        expectation["active_industry"] = "financial_services"
+    return expectation
+
+
+def _sample_cases_from_scenarios() -> list[dict[str, Any]]:
+    cases: list[dict[str, Any]] = []
+    for scenario in ENRICHED_QUERY_SCENARIOS:
+        group = str(scenario.get("group") or "Examples")
+        industry = _industry_for_group(group)
+        for index, example in enumerate(scenario.get("examples") or []):
+            cases.append(
+                {
+                    "id": _case_id(group, index, str(example)),
+                    "industry": industry,
+                    "query": str(example),
+                    "mode": "auto",
+                    "source": "search_query_page_example",
+                    "scenario_group": group,
+                    "expect": _sample_case_expectation(group, str(example)),
+                }
+            )
+    return cases
+
+
+QUERY_REGRESSION_TEST_CASES: list[dict[str, Any]] = [
+    *CORE_QUERY_REGRESSION_TEST_CASES,
+    *_sample_cases_from_scenarios(),
 ]
