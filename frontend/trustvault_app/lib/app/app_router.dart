@@ -16,7 +16,7 @@ import '../features/jobs/jobs_screen.dart';
 import '../features/licence/licence_screen.dart';
 import '../features/retention/retention_screen.dart';
 import '../features/rulesets/rulesets_screen.dart';
-import '../features/search/search_screen.dart';
+import '../features/search/search_screen_v2.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/users/user_admin_screen.dart';
 import '../shared/app_shell.dart';
@@ -48,7 +48,7 @@ final appRouter = GoRouter(
             path: '/entities',
             builder: (context, state) => const EntitiesScreen()),
         GoRoute(
-            path: '/search', builder: (context, state) => const SearchScreen()),
+            path: '/search', builder: (context, state) => const SearchScreenV2()),
         GoRoute(path: '/api', redirect: (context, state) => '/search'),
         GoRoute(
             path: '/completeness',
