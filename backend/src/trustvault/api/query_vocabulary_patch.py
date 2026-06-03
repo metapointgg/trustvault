@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from typing import Any
 
 from sqlalchemy import select
@@ -12,7 +13,7 @@ from trustvault.core.industry_query_filters import (
     evidence_has_document_type,
 )
 from trustvault.core.query_vocabulary import QueryVocabularyService
-from trustvault.db.models import Entity, FitsIndexEntry
+from trustvault.db.models import Entity, EntityContainerVersion, FitsIndexEntry
 
 
 _PATCHED = False
@@ -40,6 +41,14 @@ def apply(query_module: Any) -> None:
         service = QueryVocabularyService(db, industry_key=context.get("industry_key"))
         resolved = service.legacy_structured_overrides(request.query)
         overrides = resolved.get("overrides") or {}
+        resolved_entity = _resolve_entity_reference(db, request.query, context)
+        if resolved_entity and not structured.entity_external_id and not overrides.get("entity_external_id"):
+            overrides = {**overrides, "entity_external_id": resolved_entity.external_id}
+            meta["resolved_entity_reference"] = {
+                "entity_external_id": resolved_entity.external_id,
+                "display_name": resolved_entity.display_name,
+                "entity_type": resolved_entity.entity_type,
+            }
         context_document_types = document_types_for_missing_check(context)
         if _has_missing_intent(request.query) and context_document_types:
             overrides = {
@@ -68,6 +77,8 @@ def apply(query_module: Any) -> None:
                 "missing_evidence_type": None,
                 "execute_with": "entity_metadata",
             }
+        if overrides.get("document_types") and not _has_missing_intent(request.query):
+            overrides["document_types"] = _unique([*(structured.document_types or []), *(overrides.get("document_types") or [])])
         meta["resolved_vocabulary"] = resolved.get("resolved_vocabulary") or context.get("resolved_vocabulary")
         meta["vocabulary_overrides"] = overrides
         meta["active_industry_context"] = {
@@ -168,6 +179,8 @@ def apply(query_module: Any) -> None:
 
     def patched_structured_index_search(db: Any, service: Any, structured: Any, query: str, limit: int) -> dict[str, Any]:
         context = active_query_context(db, structured.raw_query)
+        if structured.capability == "entity_summary":
+            return _entity_summary_result(db, structured, context, limit)
         result = original_structured_index_search(db, service, structured, query, 5000)
         rows = [row for row in result.get("results", []) if _row_matches_context(db, row, context)]
         limited = rows[:limit]
@@ -258,6 +271,111 @@ def _industry_missing_row(entity: dict[str, Any], document_type: str) -> dict[st
     }
 
 
+def _entity_summary_result(db: Any, structured: Any, context: dict[str, Any], limit: int) -> dict[str, Any]:
+    entity = _entity_by_external_id(db, structured.entity_external_id)
+    if entity is None:
+        return {
+            "query": structured.raw_query,
+            "result_count": 0,
+            "results": [],
+            "filtered_entity_count": 0,
+            "diagnostics": {
+                "execution_mode": "entity_summary",
+                "active_industry": context.get("industry_key"),
+                "requested_entity_external_id": structured.entity_external_id,
+                "error": "entity_not_found_or_not_resolved",
+            },
+        }
+    entries = db.scalars(select(FitsIndexEntry).where(FitsIndexEntry.entity_id == entity.id)).all()
+    containers = db.scalars(select(EntityContainerVersion).where(EntityContainerVersion.entity_id == entity.id).order_by(EntityContainerVersion.version_number.desc())).all()
+    normalised_query = _normalise(structured.raw_query)
+    if "container" in normalised_query or "fits_container" in normalised_query:
+        rows = [
+            {
+                "summary_type": "container_version",
+                "entity_external_id": entity.external_id,
+                "entity_display_name": entity.display_name,
+                "container_version_id": str(container.id),
+                "version_number": container.version_number,
+                "status": container.status,
+                "storage_uri": container.storage_uri,
+                "sha256": container.sha256,
+                "size_bytes": container.size_bytes,
+                "evidence_object_count": container.evidence_object_count,
+                "created_at": container.created_at.isoformat() if container.created_at else None,
+            }
+            for container in containers
+        ][:limit]
+    elif "evidence_counts" in normalised_query or "counts_by_category" in normalised_query or "document_type" in normalised_query:
+        counts: Counter[tuple[str, str]] = Counter()
+        for entry in entries:
+            category, document_type = _entry_category_document_type(entry)
+            counts[(category, document_type)] += 1
+        rows = [
+            {
+                "summary_type": "evidence_count",
+                "entity_external_id": entity.external_id,
+                "entity_display_name": entity.display_name,
+                "category": category,
+                "document_type": document_type,
+                "evidence_count": count,
+            }
+            for (category, document_type), count in sorted(counts.items())
+        ][:limit]
+    else:
+        category_counts: Counter[str] = Counter()
+        document_type_counts: Counter[str] = Counter()
+        for entry in entries:
+            category, document_type = _entry_category_document_type(entry)
+            category_counts[category] += 1
+            document_type_counts[document_type] += 1
+        latest = containers[0] if containers else None
+        rows = [
+            {
+                "summary_type": "entity_summary",
+                "entity_id": str(entity.id),
+                "entity_external_id": entity.external_id,
+                "entity_display_name": entity.display_name,
+                "entity_type": entity.entity_type,
+                "status": entity.status,
+                "metadata_json": entity.metadata_json or {},
+                "container_count": len(containers),
+                "indexed_evidence_count": len(entries),
+                "category_counts": dict(category_counts),
+                "document_type_counts": dict(document_type_counts),
+                "latest_container_version": latest.version_number if latest else None,
+                "latest_container_status": latest.status if latest else None,
+            }
+        ]
+    return {
+        "query": structured.raw_query,
+        "entity_id": str(entity.id),
+        "entity_external_id": entity.external_id,
+        "container_version_id": str(containers[0].id) if containers else None,
+        "result_count": len(rows),
+        "results": rows,
+        "filtered_entity_count": 1,
+        "diagnostics": {
+            "execution_mode": "entity_summary",
+            "active_industry": context.get("industry_key"),
+            "industry_filter_source": "entity_metadata_and_fits_index",
+            "requested_entity_external_id": structured.entity_external_id,
+            "matching_entity_count": 1,
+            "matching_entity_external_ids": [entity.external_id],
+            "indexed_evidence_count": len(entries),
+            "container_count": len(containers),
+        },
+    }
+
+
+def _entry_category_document_type(entry: FitsIndexEntry) -> tuple[str, str]:
+    metadata = entry.metadata_json or {}
+    nested = metadata.get("metadata") if isinstance(metadata.get("metadata"), dict) else {}
+    category = metadata.get("category") or nested.get("category") or entry.object_type or "uncategorised"
+    document_type = metadata.get("document_type") or nested.get("document_type") or entry.object_type or entry.filename or "unknown"
+    return str(category), str(document_type)
+
+
 def _row_matches_context(db: Any, row: dict[str, Any], context: dict[str, Any]) -> bool:
     entity = None
     entity_id = row.get("entity_id")
@@ -296,6 +414,39 @@ def _row_matches_context(db: Any, row: dict[str, Any], context: dict[str, Any]) 
     return True
 
 
+def _resolve_entity_reference(db: Any, raw_query: str, context: dict[str, Any]) -> Entity | None:
+    query_norm = _normalise(raw_query)
+    if not query_norm:
+        return None
+    candidates = db.scalars(select(Entity)).all()
+    matches: list[tuple[int, Entity]] = []
+    for entity in candidates:
+        row = {"external_id": entity.external_id, "entity_type": entity.entity_type, "metadata_json": entity.metadata_json or {}}
+        if not entity_matches_context(row, {"industry_key": context.get("industry_key"), "metadata_filters": []}):
+            continue
+        external_norm = _normalise(entity.external_id)
+        display_norm = _normalise(entity.display_name)
+        if external_norm and external_norm in query_norm:
+            matches.append((100, entity))
+            continue
+        if display_norm and display_norm in query_norm:
+            matches.append((90, entity))
+            continue
+        name_tokens = [token for token in display_norm.split("_") if len(token) > 2]
+        if name_tokens and all(token in query_norm for token in name_tokens):
+            matches.append((70 + len(name_tokens), entity))
+    if not matches:
+        return None
+    matches.sort(key=lambda item: (item[0], len(item[1].display_name)), reverse=True)
+    return matches[0][1]
+
+
+def _entity_by_external_id(db: Any, external_id: str | None) -> Entity | None:
+    if not external_id:
+        return None
+    return db.scalars(select(Entity).where(Entity.external_id == external_id)).first()
+
+
 def _has_missing_intent(query: str) -> bool:
     normalised = _normalise(query)
     return any(phrase in normalised for phrase in ("missing", "not_supplied", "not_provided", "without", "outstanding", "have_not_supplied", "has_not_supplied"))
@@ -315,6 +466,18 @@ def _has_entity_list_intent(query: str) -> bool:
 
 def _to_key(value: str) -> str:
     return _normalise(value)
+
+
+def _unique(values: list[Any]) -> list[Any]:
+    output: list[Any] = []
+    seen: set[str] = set()
+    for value in values:
+        key = _normalise(value)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        output.append(value)
+    return output
 
 
 def _normalise(value: Any) -> str:
