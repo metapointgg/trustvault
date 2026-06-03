@@ -5,6 +5,7 @@ import '../../core/auth/auth_controller.dart';
 import 'demo_archive_settings_card.dart';
 import 'industry_pack_editor_card.dart';
 import 'industry_pack_settings_card.dart';
+import 'industry_ruleset_settings_card.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -147,7 +148,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Text('Settings', style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 8),
-                      const Text('Manage safe runtime configuration, client industry packs, static query data, demo archives and document classification mappings. Secrets remain environment/secret-manager controlled.'),
+                      const Text('Manage safe runtime configuration, client industry packs, static query data, completeness rulesets, demo archives and document classification mappings. Secrets remain environment/secret-manager controlled.'),
                     ],
                   ),
                 ),
@@ -168,6 +169,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             IndustryPackSettingsCard(editable: isAdmin && !_saving),
             const SizedBox(height: 16),
             IndustryPackEditorCard(editable: isAdmin && !_saving),
+            const SizedBox(height: 16),
+            IndustryRulesetSettingsCard(editable: isAdmin && !_saving),
             const SizedBox(height: 16),
             DemoArchiveSettingsCard(editable: isAdmin && !_saving),
             const SizedBox(height: 16),
