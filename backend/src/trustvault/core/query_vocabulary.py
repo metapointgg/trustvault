@@ -66,6 +66,8 @@ class QueryVocabularyService:
                         continue
                     if self._is_blocked_present_status_match(vocab, canonical, candidate_norm, normalised):
                         continue
+                    if vocab.get("field_binding") == "risk_rating" and not self._risk_rating_phrase_is_explicit(normalised, candidate_norm):
+                        continue
                     if self._contains_phrase(normalised, candidate_norm):
                         key = (str(vocab.get("list_key") or ""), canonical)
                         if key in seen:
@@ -144,6 +146,7 @@ class QueryVocabularyService:
         if self.pack.get("key") != "supplier_due_diligence":
             return []
         matches: list[VocabularyMatch] = []
+
         def add(dimension: str, canonical: str, alias: str, field_binding: str | None, requirement: bool = False, confidence: float = 0.96) -> None:
             key = (dimension, canonical)
             if key in seen:
@@ -164,6 +167,9 @@ class QueryVocabularyService:
     def _risk_rating_match_is_explicit(self, query: str, match: dict[str, Any]) -> bool:
         query_norm = self._normalise(query)
         alias_norm = self._normalise(match.get("matched_alias"))
+        return self._risk_rating_phrase_is_explicit(query_norm, alias_norm)
+
+    def _risk_rating_phrase_is_explicit(self, query_norm: str, alias_norm: str) -> bool:
         return "risk" in query_norm or "risk" in alias_norm
 
     def _has_missing_intent(self, query: str) -> bool:
