@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from trustvault.core.document_classification import DocumentClassificationService
+from trustvault.core.evidence_classifier import EvidenceClassifier
 from trustvault.core.hashing import sha256_bytes
 from trustvault.db.models import Entity, EvidenceObject, SourceSystem
 from trustvault.settings import get_settings
@@ -39,8 +40,10 @@ class SourceFolderIngestionService:
     under a different file name, skips unchanged evidence rather than appending
     duplicate records and creating a larger FITS archive.
 
-    Folder names are retained as provenance, but document classification now uses
-    filename-driven document type mappings configured in Settings.
+    Folder names are retained as provenance. Document classification first uses
+    the editable legacy classification settings, then overlays canonical
+    industry-pack document metadata where the selected/client industry vocabulary
+    provides a stronger match.
     """
 
     IGNORED_PREFIXES = ("__MACOSX/",)
@@ -50,6 +53,7 @@ class SourceFolderIngestionService:
         settings = get_settings()
         self.storage = LocalFilesystemStorage(settings.local_storage_root)
         self.classifier = DocumentClassificationService(db)
+        self.industry_classifier = EvidenceClassifier(db)
 
     def ingest_zip_bytes(self, zip_bytes: bytes, *, source_system_default: str = "source_folder") -> SourceFolderIngestionResult:
         with zipfile.ZipFile(io.BytesIO(zip_bytes), mode="r") as archive:
@@ -129,8 +133,6 @@ class SourceFolderIngestionService:
                         "sensitivity": "confidential",
                     },
                 )
-                if metadata.get("category"):
-                    metadata["retention_class"] = metadata["category"]
                 if search_text:
                     metadata.update(
                         {
@@ -149,6 +151,17 @@ class SourceFolderIngestionService:
                     metadata["retention_class"] = "Audit"
                     metadata["search_text"] = content.decode("utf-8", errors="replace")
                     metadata["search_text_source"] = "json_payload"
+                else:
+                    metadata = self._apply_industry_classification(
+                        entity=entity,
+                        filename=filename,
+                        object_type=object_type,
+                        source_system=source_system,
+                        search_text=search_text,
+                        metadata=metadata,
+                    )
+                    if metadata.get("category"):
+                        metadata["retention_class"] = metadata["category"]
 
                 evidence = self._store_evidence(
                     entity=entity,
@@ -180,6 +193,30 @@ class SourceFolderIngestionService:
                 evidence_object_ids=evidence_ids,
                 assurance_gaps=assurance_gaps,
             )
+
+    def _apply_industry_classification(
+        self,
+        *,
+        entity: Entity,
+        filename: str,
+        object_type: str,
+        source_system: str,
+        search_text: str | None,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        classification = self.industry_classifier.classify(
+            filename=filename,
+            object_type=object_type,
+            source_system=source_system,
+            text_content=search_text or metadata.get("search_text"),
+            metadata=metadata,
+            entity=entity,
+        )
+        if classification is None:
+            return metadata
+        next_metadata = dict(metadata)
+        next_metadata.update(classification.to_metadata())
+        return next_metadata
 
     def _existing_evidence_fingerprints(self, entity: Entity) -> tuple[set[tuple[str, str]], set[str]]:
         rows = self.db.scalars(select(EvidenceObject).where(EvidenceObject.entity_id == entity.id)).all()
