@@ -41,6 +41,9 @@ class EvidenceClassifier:
     the classifier itself.
     """
 
+    _AUTHORITATIVE_CLASSIFICATION_SOURCES = {"system_metadata"}
+    _SELF_DESCRIBING_OBJECT_TYPES = {"email", "audit_events", "audit events"}
+
     def __init__(self, db: Session):
         self.db = db
         self.pack_config = IndustryPackConfigService(db)
@@ -57,26 +60,42 @@ class EvidenceClassifier:
         industry_key: str | None = None,
     ) -> EvidenceClassification | None:
         metadata = metadata or {}
+        if self._should_preserve_existing_classification(metadata=metadata, object_type=object_type, filename=filename):
+            return None
+
         industry = self._resolve_industry(entity=entity, metadata=metadata, industry_key=industry_key)
         pack = self.pack_config.get_pack(industry)
         candidates = self._document_type_candidates(pack)
         if not candidates:
             return None
 
-        haystack = self._normalise_text("\n".join([
-            filename or "",
-            object_type or "",
-            source_system or "",
-            text_content or "",
-            self._metadata_text(metadata),
-        ]))
-        if not haystack:
+        # Classification should be based on document identity signals, not the
+        # whole document body or arbitrary metadata. Using full text content made
+        # generic files such as audit logs, emails and statements match business
+        # vocabulary terms that merely appeared inside the text.
+        identity_haystack = self._normalise_text(
+            "\n".join(
+                [
+                    filename or "",
+                    object_type or "",
+                    source_system or "",
+                    self._identity_metadata_text(metadata),
+                ]
+            )
+        )
+        if not identity_haystack:
             return None
 
         best: tuple[float, str, str | None] | None = None
         for document_type, aliases in candidates.items():
             for alias in sorted({document_type, *aliases}, key=len, reverse=True):
-                score = self._match_score(haystack, alias, filename=filename, object_type=object_type, metadata=metadata)
+                score = self._match_score(
+                    identity_haystack,
+                    alias,
+                    filename=filename,
+                    object_type=object_type,
+                    metadata=metadata,
+                )
                 if score <= 0:
                     continue
                 if best is None or score > best[0] or (score == best[0] and len(document_type) > len(best[1])):
@@ -166,6 +185,44 @@ class EvidenceClassifier:
         if existing_category_norm and alias_norm in existing_category_norm:
             return 0.70
         return 0.0
+
+    def _should_preserve_existing_classification(
+        self,
+        *,
+        metadata: dict[str, Any],
+        object_type: str | None,
+        filename: str | None,
+    ) -> bool:
+        nested = metadata.get("metadata") if isinstance(metadata.get("metadata"), dict) else {}
+        classification_source = self._normalise_token(metadata.get("classification_source") or nested.get("classification_source"))
+        classification_status = self._normalise_token(metadata.get("classification_status") or nested.get("classification_status"))
+        if classification_status == "classified" and classification_source in self._AUTHORITATIVE_CLASSIFICATION_SOURCES:
+            return True
+
+        object_type_norm = self._normalise_token(object_type or metadata.get("object_type") or nested.get("object_type"))
+        document_type_norm = self._normalise_token(metadata.get("document_type") or nested.get("document_type"))
+        filename_norm = self._normalise_token(filename or metadata.get("filename") or nested.get("filename"))
+        if object_type_norm in self._SELF_DESCRIBING_OBJECT_TYPES or document_type_norm in self._SELF_DESCRIBING_OBJECT_TYPES:
+            return True
+        if filename_norm.endswith(" eml") or filename_norm.endswith(" email"):
+            return True
+        return False
+
+    def _identity_metadata_text(self, metadata: dict[str, Any]) -> str:
+        nested = metadata.get("metadata") if isinstance(metadata.get("metadata"), dict) else {}
+        values: list[str] = []
+        for key in (
+            "filename",
+            "object_type",
+            "document_type",
+            "category",
+            "content_type",
+            "classification_matched_alias",
+        ):
+            value = metadata.get(key) if metadata.get(key) is not None else nested.get(key)
+            if isinstance(value, (str, int, float, bool)):
+                values.append(f"{key} {value}")
+        return "\n".join(values)
 
     def _metadata_text(self, metadata: dict[str, Any]) -> str:
         values: list[str] = []
