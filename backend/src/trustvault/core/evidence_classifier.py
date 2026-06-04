@@ -42,7 +42,16 @@ class EvidenceClassifier:
     """
 
     _AUTHORITATIVE_CLASSIFICATION_SOURCES = {"system_metadata"}
-    _SELF_DESCRIBING_OBJECT_TYPES = {"email", "audit_events", "audit events", "statement", "statements"}
+    _SELF_DESCRIBING_OBJECT_TYPES = {
+        "audit_events",
+        "audit_events_json",
+        "bulk_archive_attachment",
+        "email",
+        "statement",
+        "statements",
+        "structured_extract",
+        "structured_extracts",
+    }
 
     def __init__(self, db: Session):
         self.db = db
@@ -208,8 +217,13 @@ class EvidenceClassifier:
 
         object_type_norm = self._normalise_token(object_type or metadata.get("object_type") or nested.get("object_type"))
         document_type_norm = self._normalise_token(metadata.get("document_type") or nested.get("document_type"))
+        category_norm = self._normalise_token(metadata.get("category") or nested.get("category"))
         filename_norm = self._normalise_token(filename or metadata.get("filename") or nested.get("filename"))
-        if object_type_norm in self._SELF_DESCRIBING_OBJECT_TYPES or document_type_norm in self._SELF_DESCRIBING_OBJECT_TYPES:
+        if (
+            object_type_norm in self._SELF_DESCRIBING_OBJECT_TYPES
+            or document_type_norm in self._SELF_DESCRIBING_OBJECT_TYPES
+            or category_norm in self._SELF_DESCRIBING_OBJECT_TYPES
+        ):
             return True
         if filename_norm.endswith("_eml") or filename_norm.endswith("_email"):
             return True
@@ -227,7 +241,10 @@ class EvidenceClassifier:
         ):
             value = metadata.get(key) if metadata.get(key) is not None else nested.get(key)
             if isinstance(value, (str, int, float, bool)):
-                values.append(f"{key} {value}")
+                # Use only the value. Field names such as document_type added the
+                # token "document" and caused weak partial matches such as
+                # "identity document" -> Passport for unrelated rows.
+                values.append(str(value))
         return "\n".join(values)
 
     def _metadata_text(self, metadata: dict[str, Any]) -> str:
