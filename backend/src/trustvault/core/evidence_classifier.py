@@ -42,7 +42,7 @@ class EvidenceClassifier:
     """
 
     _AUTHORITATIVE_CLASSIFICATION_SOURCES = {"system_metadata"}
-    _SELF_DESCRIBING_OBJECT_TYPES = {"email", "audit_events", "audit events"}
+    _SELF_DESCRIBING_OBJECT_TYPES = {"email", "audit_events", "audit events", "statement", "statements"}
 
     def __init__(self, db: Session):
         self.db = db
@@ -70,9 +70,9 @@ class EvidenceClassifier:
             return None
 
         # Classification should be based on document identity signals, not the
-        # whole document body or arbitrary metadata. Using full text content made
-        # generic files such as audit logs, emails and statements match business
-        # vocabulary terms that merely appeared inside the text.
+        # whole document body or arbitrary metadata. In particular, do not use
+        # content_type because values such as application/pdf collide with broad
+        # business aliases such as "application".
         identity_haystack = self._normalise_text(
             "\n".join(
                 [
@@ -174,6 +174,13 @@ class EvidenceClassifier:
             return 1.0
         if alias_norm and (alias_norm in filename_norm or alias_norm in object_type_norm or alias_norm in existing_doc_norm):
             return 0.98
+
+        # Single-word aliases such as "application" or "report" are useful for
+        # document identity fields but are too broad for a general haystack match.
+        # They must not classify from incidental metadata or source-system text.
+        if len(alias_tokens) == 1:
+            return 0.0
+
         if alias_norm and alias_norm in haystack:
             return 0.92
 
@@ -204,7 +211,7 @@ class EvidenceClassifier:
         filename_norm = self._normalise_token(filename or metadata.get("filename") or nested.get("filename"))
         if object_type_norm in self._SELF_DESCRIBING_OBJECT_TYPES or document_type_norm in self._SELF_DESCRIBING_OBJECT_TYPES:
             return True
-        if filename_norm.endswith(" eml") or filename_norm.endswith(" email"):
+        if filename_norm.endswith("_eml") or filename_norm.endswith("_email"):
             return True
         return False
 
@@ -216,7 +223,6 @@ class EvidenceClassifier:
             "object_type",
             "document_type",
             "category",
-            "content_type",
             "classification_matched_alias",
         ):
             value = metadata.get(key) if metadata.get(key) is not None else nested.get(key)
