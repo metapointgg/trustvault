@@ -14,6 +14,10 @@ class _FakeSupplierEntity:
     metadata_json = {"industry_pack": "supplier_due_diligence", "supplier_category": "IT"}
 
 
+class _FakeFinancialServicesEntity:
+    metadata_json = {"industry_pack": "financial_services", "risk_rating": "High"}
+
+
 def test_industry_classifier_uses_healthcare_vocabulary() -> None:
     service = EvidenceClassifier(_FakeSession())
 
@@ -49,3 +53,41 @@ def test_industry_classifier_uses_supplier_vocabulary() -> None:
     assert result.category == "cyber_due_diligence"
     assert result.classification_status == "classified"
     assert result.industry_pack == "supplier_due_diligence"
+
+
+def test_classifier_does_not_reclassify_structured_extract_as_passport() -> None:
+    service = EvidenceClassifier(_FakeSession())
+
+    result = service.classify(
+        filename="transactions_2026_q1.csv",
+        object_type="structured_extract",
+        source_system="Operational System",
+        text_content="Contains customer transactions and passport verification fields in exported data.",
+        metadata={
+            "industry_pack": "financial_services",
+            "category": "structured_extracts",
+            "document_type": "structured_extract",
+        },
+        entity=_FakeFinancialServicesEntity(),
+    )
+
+    assert result is None
+
+
+def test_classifier_does_not_reclassify_bulk_archive_placeholder_as_poa() -> None:
+    service = EvidenceClassifier(_FakeSession())
+
+    result = service.classify(
+        filename="bulk_archive_attachment_missing_poa.bin",
+        object_type="bulk_archive_attachment",
+        source_system="Document Store",
+        text_content="Placeholder generated while proof of address was unavailable.",
+        metadata={
+            "industry_pack": "financial_services",
+            "category": "large_evidence",
+            "document_type": "bulk_archive_attachment",
+        },
+        entity=_FakeFinancialServicesEntity(),
+    )
+
+    assert result is None
