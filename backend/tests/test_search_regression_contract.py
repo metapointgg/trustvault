@@ -1,4 +1,4 @@
-from scripts.run_search_regression import TrustVaultRegressionRunner
+from trustvault.core.search_regression_contract import TrustVaultRegressionRunner
 
 
 def _runner() -> TrustVaultRegressionRunner:
