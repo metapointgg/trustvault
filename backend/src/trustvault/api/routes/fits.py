@@ -9,6 +9,7 @@ from trustvault.audit.logger import AuditLogger
 from trustvault.api.dependencies import get_audit_logger, get_database
 from trustvault.auth.dependencies import require_permission
 from trustvault.auth.models import CurrentUser
+from trustvault.core.fits_index_classification import FitsIndexClassificationService
 from trustvault.core.fits_reader import FitsContainerReader
 
 router = APIRouter(prefix="/api/v1/fits", tags=["fits"])
@@ -73,6 +74,7 @@ class FitsIndexRebuildResponse(BaseModel):
     skipped_entity_count: int
     indexed: list[dict[str, Any]]
     skipped: list[dict[str, Any]]
+    classification: dict[str, Any] | None = None
 
 
 @router.get("/entities/{entity_id}/inspect", response_model=FitsInspectResponse)
@@ -186,6 +188,13 @@ def rebuild_fits_index(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    classification_entity_ids = [item.get("entity_id") for item in result.get("indexed", []) if item.get("entity_id")]
+    if len(classification_entity_ids) == 1:
+        classification = FitsIndexClassificationService(db).classify_index_entries(entity_id=classification_entity_ids[0])
+    else:
+        classification = FitsIndexClassificationService(db).classify_index_entries()
+    result["classification"] = classification
+
     audit_logger.log(
         INDEX_REBUILT,
         user_id=current_user.subject,
@@ -194,6 +203,8 @@ def rebuild_fits_index(
             "entity_reference": entity_reference,
             "indexed_entity_count": result["indexed_entity_count"],
             "skipped_entity_count": result["skipped_entity_count"],
+            "classified_index_entry_count": classification.get("classified_count"),
+            "updated_index_entry_count": classification.get("updated_count"),
         },
     )
     return FitsIndexRebuildResponse(**result)
