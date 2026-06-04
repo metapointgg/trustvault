@@ -2,6 +2,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from trustvault.audit.events import INDEX_REBUILT, SEARCH_EXECUTED
@@ -11,6 +12,7 @@ from trustvault.auth.dependencies import require_permission
 from trustvault.auth.models import CurrentUser
 from trustvault.core.fits_index_classification import FitsIndexClassificationService
 from trustvault.core.fits_reader import FitsContainerReader
+from trustvault.db.models import Entity
 
 router = APIRouter(prefix="/api/v1/fits", tags=["fits"])
 
@@ -184,7 +186,7 @@ def rebuild_fits_index(
 ) -> FitsIndexRebuildResponse:
     entity_reference = request.entity_id or request.entity_external_id
     try:
-        result = FitsContainerReader(db).rebuild_index_from_current_fits(entity_reference)
+        result = _rebuild_index_with_missing_file_tolerance(db, entity_reference)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -208,3 +210,35 @@ def rebuild_fits_index(
         },
     )
     return FitsIndexRebuildResponse(**result)
+
+
+def _rebuild_index_with_missing_file_tolerance(db: Session, entity_reference: str | None) -> dict[str, Any]:
+    if entity_reference:
+        return FitsContainerReader(db).rebuild_index_from_current_fits(entity_reference)
+
+    indexed: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    entities = db.scalars(select(Entity).order_by(Entity.external_id.asc())).all()
+    for entity in entities:
+        try:
+            partial = FitsContainerReader(db).rebuild_index_from_current_fits(entity.external_id)
+        except FileNotFoundError as exc:
+            db.rollback()
+            skipped.append(
+                {
+                    "entity_id": str(entity.id),
+                    "entity_external_id": entity.external_id,
+                    "reason": "current_fits_storage_file_missing",
+                    "detail": str(exc),
+                }
+            )
+            continue
+        indexed.extend(partial.get("indexed", []))
+        skipped.extend(partial.get("skipped", []))
+
+    return {
+        "indexed_entity_count": len(indexed),
+        "skipped_entity_count": len(skipped),
+        "indexed": indexed,
+        "skipped": skipped,
+    }
